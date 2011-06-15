@@ -1,0 +1,61 @@
+package IOManager;
+
+use strict;
+
+sub new {
+	my ($class) = @_;
+	my $self = {
+		path_separator => ""
+	};
+	bless ($self,$class);
+	$self->GetPathSeparator();
+	return $self;
+}
+
+sub GetPathSeparator {
+	my ($self) = @_;
+	my $os = $^O;
+	if (($os eq "darwin") or ($os eq "MacOS") or ($os eq "linux")) {
+		$self->{path_separator} = "/";
+	}
+	elsif ($os eq "MSWin32") {
+		$self->{path_separator} = "\/";
+	}
+	else {
+		exit;
+	}
+}
+
+# Processes string to use as filename
+sub ReadyForFile {
+    my($self,$name) = @_;
+    
+    $name =~s/\//_/g;
+    $name =~s/\:/_/g;
+    $name =~s/\*/_/g;
+    $name =~s/\?/_/g;
+    $name =~s/\\/_/g;
+    $name =~s/\</_/g;
+    $name =~s/\>/_/g;
+    $name =~s/\"/_/g;
+    $name =~s/\|/_/g;
+    
+    if (length ($name) > 100) {
+    	$name = substr($name,0,100)
+    }
+    return $name;
+}
+
+#Processes string for use as a database table name
+sub ReadyForDB {
+    my($self,$name) = @_;
+    
+    $name =~s/\./_/g;
+    
+    if (length ($name) > 100) {
+    	$name = substr($name,0,100)
+    }
+    return $name;
+}
+
+1;
