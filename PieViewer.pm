@@ -88,8 +88,6 @@ sub OnPaint {
 	my ($self,$event) = @_;
 	my $dc = Wx::PaintDC->new($self);
 	$dc->DrawBitmap($self->{Bitmap},0,0,1);
-	$self->Refresh;
-	$self->Layout;
 }
 
 sub OnSize {
@@ -235,17 +233,11 @@ sub Draw {
 		$dc->SetPen(wxWHITE_PEN);
 	}
 	else {
-		$dc->SetBrush(wxLIGHT_GREY_BRUSH); #alternative grey: Wx::Brush->new(wxSYS_COLOUR_BACKGROUND,wxSOLID)
+		$dc->SetBrush(wxLIGHT_GREY_BRUSH);
 		$dc->SetPen(wxLIGHT_GREY_PEN);
 	}
 	
-	#Draw Main Rectangle
-	if ($self->{Legend} == 1) {
-		$dc->DrawRectangle(0,0,$width,$height - $legend_height);
-	}
-	else {
-		$dc->DrawRectangle(0,0,$width,$height);
-	}
+	$dc->DrawRectangle(0,0,$width,$height);
 	
 	my $radius = $width;
 	if ($height < $width) {
@@ -295,7 +287,7 @@ sub Draw {
 }
 
 sub DrawLegendRectangle {
-	my ($self,$dc,$legend_x,$legend_y,$legend_width,$legend_height);
+	my ($self,$dc,$legend_x,$legend_y,$legend_width,$legend_height) = @_;
 	
 	if ($self->{Legend} == 1) {
 		if ($self->{Background} == 1) {
@@ -427,6 +419,7 @@ sub new {
 	$self->{Sync} = $sync;
 	$self->Notebook($data,$titles,$sync);
 	bless $self,$class;
+	return $self;
 }
 
 sub Notebook {
@@ -449,7 +442,6 @@ sub Notebook {
 	$self->SetSizer($sizer);
 	$self->{Notebook}->SetSelection($i-1);
 	$self->Layout;
-	$self->Show();
 }
 
 sub TopMenu {
