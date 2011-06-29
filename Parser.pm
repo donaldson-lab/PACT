@@ -304,7 +304,7 @@ sub HitRoutine {
 	my $endq = $hitdata->[13];
 	my $gi = $hitdata->[4];
 	my $sequence = $hitdata->[2];
-	my $hitname = $hitdata->[10];
+	my $hitname = $hitdata->[3];
 	
 	chdir($self->{OutputDirectory});
 	for my $flag (keys(%{$self->{Data}})) {
@@ -374,29 +374,40 @@ sub PrintFound {
 sub PrintSummaryText {
 	my ($self,$tree,$data) = @_;
 	my $root = $tree->get_root_node;
-	open(TREE,'>>' . $root->node_name . '.pact.txt');
 	
-	my $height = $tree->height;
+	## BioPerl's depth routine does not seem to work well.
+	sub GetDepth {
+		my ($node) = @_;
+		my $depth = 0;
+		while (defined $node->ancestor) {
+			$depth++;
+			$node = $node->ancestor;
+		}
+		return $depth;
+	}
+	
+	open(TREE,'>>' . $root->node_name . '.pact.txt');
 	
 	for my $node($tree->get_nodes) {
 		my $space = "";
-		for (my $i=0; $i<($height - $node->height); $i++) {
+		for (my $i=0; $i<GetDepth($node); $i++) {
 			$space = $space . "  ";
 		}
-		print TREE $space . $node->node_name . ": " . $data->{$node->node_name} . "\n";
+		print TREE $space . $node->node_name . ": " . $data->{$node->id} . "\n";
 	}
 }
 
-### Do not use directly
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
+use base ("Process");
+use Time::HiRes;
 
 sub new {
 	my ($class) = @_;
      
     my $self = {
-     	TaxonomyDB => undef,
+     	TaxonomyDB => undef
 	};
 	$self->{Data} = (); # Data is hit id to value.
 	$self->{SpeciesToAncestor} = (); # hash of species id to ancestor id.
@@ -411,6 +422,15 @@ sub SetSearchFilters {
 	$self->{Ranks} = \%hranks;
 	my %hroots = map {$_ => 1} @$roots;
 	$self->{Roots} = \%hroots;
+}
+
+sub HitRoutine {
+	my ($self,$hitdata) = @_;
+	my $gi = $hitdata->[4];
+	my $hitname = $hitdata->[3];
+	#print $gi . " " . $hitname . "\n";
+	#Time::HiRes::usleep(100);
+	$self->GenerateBranch($hitname,$gi);
 }
 
 ## Implementation specific
@@ -484,11 +504,11 @@ sub GetTrees {
 			my $taxon = $self->{IdToTaxon}{$id};
 			# code somewhat borrowed from BioPerl db::Taxonomy get_tree, but for ids
 			eval {
-				if ($tree) {
+				if (defined $tree) {
                 	$tree->merge_lineage($taxon);
             	}
 	            else {
-	                $tree = Bio::Tree::Tree->new(-verbose => $self->{Taxonomy}->verbose, -node => $taxon);
+	                $tree = Bio::Tree::Tree->new(-verbose => $self->{TaxonomyDB}->verbose, -node => $taxon);
 	            }
 			};
 			if ($@) {
