@@ -1,9 +1,7 @@
 #!/usr/bin/perl
 use strict;
-use threads;
-use threads::shared;
 use Wx;
-#use ProcessDB;
+use Parser;
 use PieViewer;
 use IO::File;
 use IOManager;
@@ -36,26 +34,36 @@ sub new {
 	my $self = $class->SUPER::new($parent,-1,$title,[$tx,$ty],[$twidth,$theight],);
 	$self->SetMinSize($size);
 	$self->SetMaxSize($size);
-	my $panel = Wx::Panel->new($self,-1);
-	$panel->SetBackgroundColour($turq);
+	bless ($self,$class);
+	$self->Display($parent,$title,$dialog);
+	return $self;
+}
+
+sub Display {
+	my ($self,$parent,$title,$dialog) = @_;
+	$self->{Panel} = Wx::Panel->new($self,-1);
+	$self->{Panel}->SetBackgroundColour($turq);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $text_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $text = Wx::StaticText->new($panel,-1,$dialog);
+	my $text = Wx::StaticText->new($self->{Panel},-1,$dialog);
 	$text_sizer->Add($text,1,wxCENTER);
 	
 	my $button_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $ok = Wx::Button->new($panel,-1,"Ok");
-	my $cancel = Wx::Button->new($panel,-1,"Cancel");
-	$button_sizer->Add($ok,1,wxCENTER|wxRIGHT,10);
-	$button_sizer->Add($cancel,1,wxCENTER|wxLEFT,10);
+	$self->{Ok} = Wx::Button->new($self->{Panel},-1,"Ok");
+	$self->{Cancel} = Wx::Button->new($self->{Panel},-1,"Cancel");
+	$button_sizer->Add($self->{Ok},1,wxCENTER|wxRIGHT,10);
+	$button_sizer->Add($self->{Cancel},1,wxCENTER|wxLEFT,10);
 	
 	$sizer->Add($text_sizer,1,wxCENTER);
 	$sizer->Add($button_sizer,2,wxCENTER);
-	$panel->SetSizer($sizer);
+	$self->{Panel}->SetSizer($sizer);
 	$self->Show;
-	
-	EVT_BUTTON($panel,$ok,sub{$self->OkPressed($parent,$function,$parameters)});
-	EVT_BUTTON($panel,$cancel,sub{$self->Close(1)});
+}
+
+sub ConnectEvents {
+	my ($self,$parent,$function,$parameters) = @_;
+	EVT_BUTTON($self->{Panel},$self->{Ok},sub{$self->OkPressed($parent,$function,$parameters)});
+	EVT_BUTTON($self->{Panel},$self->{Cancel},sub{$self->Close(1)});
 }
 
 # Ensures the dialog is destroyed when the ok or yes button is pressed.
@@ -65,26 +73,30 @@ sub OkPressed {
 	$self->Close(1);
 }
 
-# To be deprecated?
-
-# For individual Pie Charts.
-package PieData;
+package DeleteListItemDialog;
+use Wx::Event qw(EVT_BUTTON);
+use base ("OkDialog");
 
 sub new {
-	my ($class) = shift;
-	my $self = {
-		File => "",
-		Return => undef,
-		Title => "",
-		Level => "",
-		Is_Level => 0,
-		Is_Fill => 0,
-		Fill_Selection => 0,
-		Selection_String => ""
-	};
-	
-	bless $self,$class;
+	my ($class,$parent,$title,$dialog,$textbox) = @_;
+	my $self = $class->SUPER::new($parent,$title,$dialog,0,0);
+	$self->Display($parent,$title,$dialog);
+	$self->ConnectEvents($textbox);
 	return $self;
+}
+
+sub ConnectEvents {
+	my ($self,$textbox) = @_;
+	EVT_BUTTON($self->{Panel},$self->{Ok},sub{$self->OkPressed($textbox)});
+	EVT_BUTTON($self->{Panel},$self->{Cancel},sub{$self->Close(1)});
+}
+
+sub OkPressed {
+	my ($self,$textbox) = @_;
+	my $selection = $textbox->GetSelection;
+	print $selection . "\n";
+	$textbox->Delete($selection);
+	$self->Close(1);
 }
 
 package PieMenu;
@@ -540,8 +552,8 @@ sub Classification_Data_Menu {
 	
 }
 
-package Display;
-use base 'Wx::Frame';
+package ParserMenu;
+
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
 use Wx::Event qw(EVT_MENU);
@@ -552,66 +564,97 @@ use Wx::Event qw(EVT_CHECKBOX);
 use Wx::Event qw(EVT_LISTBOX);
 use Wx::Event qw(EVT_LISTBOX_DCLICK);
 
-sub new {
-	my ($class) = shift;
+use base 'Wx::Panel';
 
-	my $self = $class->SUPER::new(undef,-1,'PACT',[-1,-1],[1200,600],);
+sub new {
+	my ($class,$parent) = @_;
 	
-	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{Panel} = Wx::Panel->new($self,-1);
-	$self->{Panel}->SetBackgroundColour($turq);
-	$self->{CurrentProcess} = undef;
-	$self->{ProcessPanel} = undef;
-	$self->{PiePanel} = undef;
-	$self->{ResultsPanel} = undef;
-	$self->{TablePanel} = undef;
+	my $self = $class->SUPER::new($parent,-1);
 	
-	$self->{Sizer}->Add($self->{Panel},1,wxGROW);
-	$self->SetSizer($self->{Sizer});
+	$self->{Parent} = $parent;
 	
-	$self->{Tax_Panel} = undef;
-	$self->{Tax_Sizer} = undef;
-	$self->{Tax_Type_Panel} = undef;
-	$self->{Tax_Type_Sizer} = undef;
-	$self->{Class_Panel} = undef;
-	$self->{Class_Sizer} = undef;
-	$self->{Class_Type_Panel} = undef;
-	$self->{Class_Type_Sizer} = undef;
-	$self->{PieNotebook} = undef;
-	$self->{Sync_Tax} = (); # array of taxonomy objects to be processed into pie charts.
-	$self->{Sync_Class} = (); # array of classification objects to be processed into pie charts.
-	
-	$self->{ProcessNotebook} = undef;
-	$self->{Processes} = (); #array
+	$self->{Parsers} = (); #array
+	$self->{CurrentParser} = undef;
 	$self->{Queue} = undef;
 	
-	$self->{WidgetToProcess} = (); # when a widget is updated, its associated process should be as well.
+	$self->{BlastFileTextBox} = undef;
+	$self->{FastaFileTextBox} = undef;
+	$self->{DatabaseTextBox} = undef;
+	$self->{TableTextBox} = undef;
+	$self->{ClassificationListBox} = undef;
+	$self->{FlagListBox} = undef;
 	
-	$self->Centre();
+	bless ($self,$class);
+	$self->SetPanels();
 	return $self;
 }
 
-sub OpenDialogSingle {
-	my ($self,$text_entry,$title,$process_function) = @_;
-	my $dialog = 0;
-	my $file_label = "";
-	$dialog = Wx::FileDialog->new($self,$title);
-	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($os_manager->{path_separator},$dialog->GetPath);
-		$file_label = $split[@split-1];
-	}
-	$text_entry->SetValue($file_label);
-	my $selection = $self->{ProcessNotebook}->GetSelection;
-	$process_function->($self->{Processes}->[$selection],$dialog->GetPath);
+sub SetPanels {
+	my ($self) = @_;
+	
+	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
+	$self->SetBackgroundColour($turq);
+	
+	$self->{Sizer}->Add($self,1,wxGROW);
+	$self->SetSizer($self->{Sizer});
+	
+	$self->{WidgetToProcess} = (); # when a widget is updated, its associated process should be as well.
+	
+	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+		
+	my $splitter = Wx::SplitterWindow->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSP_3D);
+
+	$self->{LeftPanel} = Wx::Panel->new($splitter,-1);
+	$self->{LeftPanel}->SetBackgroundColour($turq);
+	my $leftsizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $qtextsizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $queuetext = Wx::StaticText->new($self->{LeftPanel},-1,"Queue");
+	$qtextsizer->Add($queuetext,1,wxCENTER);
+	
+	my $listsizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{QueueList} = Wx::ListBox->new($self->{LeftPanel},-1,wxDefaultPosition(),wxDefaultSize());
+
+	$listsizer->Add($self->{QueueList},1,wxEXPAND);
+	
+	$leftsizer->Add($qtextsizer,1,wxCENTER,wxEXPAND);
+	$leftsizer->Add($listsizer,15,wxEXPAND);
+	
+	$self->{LeftPanel}->SetSizer($leftsizer);
+	$self->{LeftPanel}->Layout;
+	
+	EVT_LISTBOX($self->{LeftPanel},$self->{QueueList},sub{$self->DisplayParserMenu($self->{QueueList}->GetSelection)});
+	EVT_LISTBOX_DCLICK($self->{LeftPanel},$self->{QueueList},sub{OkDialog->new($self,"Delete","Delete Process?",\&Display::DeleteProcess,
+	[])});
+	
+	$self->{ParserNotebook} = undef;
+	$self->{RightPanel} = Wx::Panel->new($splitter,-1);
+	$self->{RightPanel}->SetBackgroundColour($turq);
+	my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{ParserNotebook} = Wx::Notebook->new($self->{RightPanel},-1);
+	$self->{ParserNotebook}->SetBackgroundColour($turq);
+	my $page = $self->NewParserMenu();
+	$self->{ParserNotebook}->AddPage($page,"");
+	$self->{RightPanel}->Layout;
+	
+	$self->{ParserNotebook}->Layout;
+	$menusizer->Add($self->{ParserNotebook},5,wxEXPAND);
+	$self->{RightPanel}->SetSizer($menusizer);
+	
+	my $splitsize = ($self->GetSize()->width)/4;
+	$splitter->SplitVertically($self->{LeftPanel},$self->{RightPanel},$splitsize);
+
+	$sizer->Add($splitter,1,wxEXPAND);
+	$self->SetSizer($sizer);
+	$self->Layout;
+	
 }
 
-sub DirectoryEntered {
-	my ($self,$checkbox,$text_entry,$title) = @_;
+sub DirectoryChecked {
+	my ($self,$checkbox,$title) = @_;
 	my $checkbox_value = $checkbox->GetValue;
-	my $selection = $self->{ProcessNotebook}->GetSelection;
+	my $selection = $self->{ParserNotebook}->GetSelection;
 	if ($checkbox_value == 0) {
-		$self->{Processes}->[$selection]->SetDirectory("",0);
-		$text_entry->SetValue("");
+		$self->{DirectoryTextBox}->SetValue("");
 	}
 	else {
 		my $dialog = 0;
@@ -620,33 +663,40 @@ sub DirectoryEntered {
 		if ($dialog->ShowModal==wxID_OK) {
 			$file_label = $dialog->GetPath;
 		}
-		$text_entry->SetValue($file_label);
-		$self->{Processes}->[$selection]->SetDirectory($dialog->GetPath,1);
+		$self->{DirectoryTextBox}->SetValue($file_label);
 	}
 }
 
 sub TableChecked {
-	my ($self,$checkbox,$textbox) = @_;
+	my ($self,$checkbox) = @_;
 	my $value = $checkbox->GetValue;
-	my $selection = $self->{ProcessNotebook}->GetSelection;
+	my $selection = $self->{ParserNotebook}->GetSelection;
 	my $name = "";
 	if ($value == 1) {
-		$name = $os_manager->ReadyForDB($self->{ProcessNotebook}->GetPageText($selection));
+		$name = $os_manager->ReadyForDB($self->{ParserNotebook}->GetPageText($selection));
 	}
-	$textbox->ChangeValue($name);
-	$self->{Processes}->[$selection]->SetSendTable($value,$name);
+	$self->{TableTextBox}->ChangeValue($name);
 }
 
 sub TableEntered {
-	my ($self,$checkbox,$textbox) = @_;
-	my $name = $textbox->GetValue;
-	my $selection = $self->{ProcessNotebook}->GetSelection;
-	$self->{Processes}->[$selection]->SetSendTable(1,$name);
+	my ($self,$checkbox) = @_;
 	$checkbox->SetValue(1);
 }
 
+sub OpenDialogSingle {
+	my ($self,$text_entry,$title) = @_;
+	my $dialog = 0;
+	my $file_label = "";
+	$dialog = Wx::FileDialog->new($self,$title);
+	if ($dialog->ShowModal==wxID_OK) {
+		my @split = split($os_manager->{path_separator},$dialog->GetPath);
+		$file_label = $split[@split-1];
+	}
+	$text_entry->SetValue($file_label);
+}
+
 sub OpenDialogMultiple {
-	my ($self,$text_entry,$title,$process_function) = @_;
+	my ($self,$text_entry,$title) = @_;
 	my $dialog = 0;
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,$title);
@@ -656,47 +706,20 @@ sub OpenDialogMultiple {
 	}
 	my $selection = $text_entry->GetCount;
 	$text_entry->InsertItems([$file_label],$selection);
-	my $selection = $self->{ProcessNotebook}->GetSelection;
-	$process_function->($self->{Processes}->[$selection],$dialog->GetPath);
-}
-
-sub AddSingleFinder {
-	my ($self,$sizer,$panel,$titlelabel,$buttonlabel,$dirlabel,$process_function) = @_;
-	my $item_label = Wx::StaticText->new($panel,-1,$titlelabel);
-	my $item_text = Wx::TextCtrl->new($panel,-1,'',wxDefaultPosition,wxDefaultSize);
-	$item_text->SetEditable(0);
-	my $item_button = Wx::Button->new($panel,-1,$buttonlabel);
-	$sizer->Add($item_label,1,wxCENTER,0);
-	$sizer->Add($item_text,1,wxCENTER|wxEXPAND,0);
-	$sizer->Add($item_button,1,wxCENTER,0);
-	EVT_BUTTON($panel,$item_button,sub{$self->OpenDialogSingle($item_text,$dirlabel,$process_function);});
-	return $item_text;
-}
-
-sub AddMultipleFinder {
-	my ($self,$sizer,$panel,$titlelabel,$buttonlabel,$dir_label,$process_function) = @_;
-	my $item_label = Wx::StaticText->new($panel,-1,$titlelabel);
-	my $item_text = Wx::ListBox->new($panel,-1,wxDefaultPosition,wxDefaultSize);
-	my $item_button = Wx::Button->new($panel,-1,$buttonlabel);
-	$sizer->Add($item_label,1,wxBOTTOM|wxCENTER,3);
-	$sizer->Add($item_text,3,wxEXPAND|wxCENTER,3);
-	$sizer->Add($item_button,1,wxTOP|wxCENTER,3);
-	EVT_BUTTON($panel,$item_button,sub{$self->OpenDialogMultiple($item_text,$dir_label,$process_function);});
-	return $item_text;
 }
 
 sub CheckProcess {
 	my ($self) = @_;
-	if (not defined $self->{CurrentProcess}->{output_file} or $self->{CurrentProcess}->{output_file} eq "") {
-		$self->SetStatusText("Please Choose a Blast File");
+	if (not defined $self->{CurrentParser}->{BlastFile} or $self->{CurrentParser}->{BlastFile} eq "") {
+		$self->{Parent}->SetStatusText("Please Choose a Blast File");
 		return 0;
 	}
-	elsif (not defined $self->{CurrentProcess}->{fasta_file} or $self->{CurrentProcess}->{fasta_file} eq "") {
-		$self->SetStatusText("Please Choose a Fasta File");
+	elsif (not defined $self->{CurrentParser}->{FastaFile} or $self->{CurrentParser}->{FastaFile} eq "") {
+		$self->{Parent}->SetStatusText("Please Choose a Fasta File");
 		return 0;
 	}
-	elsif (not defined $self->{CurrentProcess}->{outputDir} or $self->{CurrentProcess}->{outputDir} eq "") {
-		$self->SetStatusText("Please Choose an Output Directory");
+	elsif (not defined $self->{DatabaseString} or not defined $self->{DirectoryString}) {
+		$self->{Parent}->SetStatusText("Please Choose a Method of Data Output");
 		return 0;
 	}
 	else {
@@ -704,10 +727,16 @@ sub CheckProcess {
 	}
 }
 
+sub NotebookPageChanged {
+	my ($self) = @_;
+	my $selection = $self->{Notebook}->GetSelection;
+	$self->{CurrentParser} = $self->{Parsers}->[$selection];
+}
+
 sub NewProcessForQueue {
 	my ($self) = @_;
 	if ($self->CheckProcess() == 1) {
-		$self->AddProcessQueue($self->{CurrentProcess});
+		$self->AddProcessQueue($self->{CurrentParser});
 		$self->NewPage();
 	}
 	else {
@@ -717,246 +746,149 @@ sub NewProcessForQueue {
 
 sub NewPage {
 	my ($self) = @_;
-	my $newpage = $self->NewProcessMenu();
-	my $NumSelections = $self->{ProcessNotebook}->GetPageCount;
-	$self->{ProcessNotebook}->AddPage($newpage,"");
-	$self->{ProcessNotebook}->SetSelection($NumSelections);
+	my $newpage = $self->NewParserMenu();
+	my $NumSelections = $self->{ParserNotebook}->GetPageCount;
+	$self->{ParserNotebook}->AddPage($newpage,"");
+	$self->{ParserNotebook}->SetSelection($NumSelections);
 }
 
 sub AddProcessQueue {
 	my ($self,$process) = @_;
-	my $count = scalar(@{$self->{Processes}});
-	$self->{QueueList}->InsertItems([$self->{ProcessNotebook}->GetPageText($self->{ProcessNotebook}->GetSelection)],$count-1);
+	my $count = scalar(@{$self->{Parsers}});
+	$self->{QueueList}->InsertItems([$self->{ParserNotebook}->GetPageText($self->{ParserNotebook}->GetSelection)],$count-1);
 }
 
-sub RunProcessCheck {
-	my ($self,$event)  = @_;
-	my $processcheck = $self->CheckProcess();
-	my $count = scalar(@{$self->{Processes}});
-	if ($processcheck == 1) {
-		$self->{QueueList}->InsertItems([$self->{ProcessNotebook}->GetPageText($self->{ProcessNotebook}->GetSelection)],$count-1);
-		OkDialog->new($self,"Run Processes","$count process(es) to run. Continue?",\&Display::RunProcesses,[]);
-	}
-	elsif ($processcheck == 0 and scalar(@{$self->{Processes}})>1) {
-		OkDialog->new($self,"Incomplete Process","There is an incomplete process. Continue?",
-		\&OkDialog,[$self,"Run Processes","$count process(es) to run. Continue?",\&Display::RunProcesses,[]]);
-	}
-	else {
-	}
-}
-
-sub RunProcesses {
-	my ($self) = @_;
-	for my $process(@{$self->{Processes}}) {
-		$process->ProcessBlast();
-	}
-	$self->SetStatusText("Done Processing");
-}
-
-sub DeleteProcess {
-	my ($self) = @_;
-	my $selection = $self->{QueueList}->GetSelection;
-	splice(@{$self->{Processes}},$selection,1);
-	$self->{QueueList}->Delete($selection);
-	$self->{ProcessNotebook}->RemovePage($selection);
-}
-
-# $parameters is an array with two items: the first is the widget, and the second
-# is the list to remove the item from.
-sub DeleteListItem {
-	my ($self,$parameters) = @_;
-	my $selection = $parameters->[0]->GetSelection;
-	splice(@{$parameters->[1]},$selection,1);
-	$parameters->[0]->Delete($selection);
-}
-
-sub DisplayProcessMenu {
-	my ($self,$selection) = @_;
-	$self->{ProcessNotebook}->SetSelection($selection);
-}
-
-sub OnProcessClicked {
-	my ($self,$event) = @_;
-	$self->{Panel}->Hide;
-	if (defined $self->{PiePanel}) {
-		$self->{PiePanel}->Hide;
-	}
-	if (defined $self->{ResultsPanel}) {
-		$self->{ResultsPanel}->Hide;
-	}
-	$self->Refresh;
-	if (defined $self->{ProcessPanel}) {
-		$self->{ProcessPanel}->Show;
-	}
-	else {
-		
-		$self->{ProcessPanel} = Wx::Panel->new($self,-1);
-		my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-		
-		my $splitter = Wx::SplitterWindow->new($self->{ProcessPanel},-1,wxDefaultPosition,wxDefaultSize,wxSP_3D);
-	
-		$self->{LeftPanel} = Wx::Panel->new($splitter,-1);
-		$self->{LeftPanel}->SetBackgroundColour($turq);
-		my $leftsizer = Wx::BoxSizer->new(wxVERTICAL);
-		my $qtextsizer = Wx::BoxSizer->new(wxVERTICAL);
-		my $queuetext = Wx::StaticText->new($self->{LeftPanel},-1,"Queue");
-		$qtextsizer->Add($queuetext,1,wxCENTER);
-		
-		my $listsizer = Wx::BoxSizer->new(wxVERTICAL);
-		$self->{QueueList} = Wx::ListBox->new($self->{LeftPanel},-1,wxDefaultPosition(),wxDefaultSize());
-	
-		$listsizer->Add($self->{QueueList},1,wxEXPAND);
-		
-		$leftsizer->Add($qtextsizer,1,wxCENTER,wxEXPAND);
-		$leftsizer->Add($listsizer,15,wxEXPAND);
-		
-		$self->{LeftPanel}->SetSizer($leftsizer);
-		$self->{LeftPanel}->Layout;
-		
-		EVT_LISTBOX($self->{LeftPanel},$self->{QueueList},sub{$self->DisplayProcessMenu($self->{QueueList}->GetSelection)});
-		EVT_LISTBOX_DCLICK($self->{LeftPanel},$self->{QueueList},sub{OkDialog->new($self,"Delete","Delete Process?",\&Display::DeleteProcess,
-		[])});
-		
-		$self->{RightPanel} = Wx::Panel->new($splitter,-1);
-		$self->{RightPanel}->SetBackgroundColour($turq);
-		my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
-		$self->{ProcessNotebook} = Wx::Notebook->new($self->{RightPanel},-1);
-		$self->{ProcessNotebook}->SetBackgroundColour($turq);
-		my $page = $self->NewProcessMenu(); # Shouldn't this take ProcessPanel?
-		$self->{ProcessNotebook}->AddPage($page,"");
-		$self->{RightPanel}->Layout;
-		
-		$self->{ProcessNotebook}->Layout;
-		$menusizer->Add($self->{ProcessNotebook},5,wxEXPAND);
-		$self->{RightPanel}->SetSizer($menusizer);
-		
-		my $splitsize = ($self->GetSize()->width)/4;
-		$splitter->SplitVertically($self->{LeftPanel},$self->{RightPanel},$splitsize);
-	
-		$sizer->Add($splitter,1,wxEXPAND);
-		$self->{ProcessPanel}->SetSizer($sizer);
-	}
-	$self->{ProcessPanel}->Layout;
-	$self->{Sizer}->Clear;
-	$self->{Sizer}->Add($self->{ProcessPanel},1,wxEXPAND);
-	$self->Layout;
-	$self->{FileMenu}->Enable(103,1);
-}
-
-sub NewProcessMenu {
+sub NewParserMenu {
 
 	my ($self) = @_;
 	
-	$self->{CurrentProcess} = ProcessDB->new($os_manager);
-	push(@{$self->{Processes}},$self->{CurrentProcess});
+	$self->{CurrentParser} = BlastParser->new();
+	push(@{$self->{Parsers}},$self->{CurrentParser});
 	
 	my $pagesizer_horiz = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $page = Wx::Panel->new($self->{ProcessNotebook},-1);
-	$page->SetBackgroundColour($brown);
+	my $page = Wx::Panel->new($self->{ParserNotebook},-1);
+	$page->SetBackgroundColour($blue);
 	
 	my $pagesizer_vert = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $filespanel = Wx::Panel->new($page,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$filespanel->SetBackgroundColour($brown);
-	my $filessizer = Wx::BoxSizer->new(wxVERTICAL);
-
-	my $title_label = Wx::StaticText->new($filespanel,-1,"");
-	$filessizer->Add($title_label,1,wxCENTER,0);
-	
-	my $center_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxLEFT,0);
-	
-	my $singles_sizer = Wx::FlexGridSizer->new(3,3,15,15);	
-	$singles_sizer->AddGrowableCol(1,2);
-	my $blast_widget = $self->AddSingleFinder($singles_sizer,$filespanel,'BLAST File:','Find','Choose BLAST File',\&ProcessDB::SetBlastFile);
-	my $fasta_widget = $self->AddSingleFinder($singles_sizer,$filespanel,'FASTA File:','Find','Choose FASTA File',\&ProcessDB::SetFastaFile);
-	
-	my $multiples_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $flag_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $flag_widget = $self->AddMultipleFinder($flag_sizer,$filespanel,'Hits to Flag:','Add','Find Flag File',\&ProcessDB::SetFlag);
-	$multiples_sizer->Add($flag_sizer,1,wxLEFT,15);
-	my $tax_sizer =  Wx::BoxSizer->new(wxVERTICAL);
-	my $tax_widget = $self->AddMultipleFinder($tax_sizer,$filespanel,'Taxonomy:','Add','Find Taxonomy File',\&ProcessDB::SetTax);
-	$multiples_sizer->Add($tax_sizer,1,wxLEFT|wxRIGHT,10);
-	my $class_sizer =  Wx::BoxSizer->new(wxVERTICAL);
-	my $class_widget = $self->AddMultipleFinder($class_sizer,$filespanel,'Other Classification:','Add','Find Classification File',\&ProcessDB::SetClass);
-	$multiples_sizer->Add($class_sizer,1,wxRIGHT,15);
-
-	$center_sizer->Add($singles_sizer,4,wxCENTER,0);
-	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxRIGHT,0);
-	
-	$filessizer->Add($center_sizer,3,wxCENTER|wxEXPAND,0);
-	$filessizer->Add($multiples_sizer,3,wxCENTER|wxEXPAND,0);
-	$filespanel->SetSizer($filessizer);
-
-	EVT_TEXT($filespanel,$blast_widget,sub{$self->{ProcessNotebook}->SetPageText($self->{ProcessNotebook}->GetSelection,$blast_widget->GetValue)});
-	EVT_LISTBOX_DCLICK($filespanel,$flag_widget,sub{OkDialog->new($self,"Delete","Delete Flag File?",\&Display::DeleteListItem,
-		[$flag_widget,$self->{Processes}->[$self->{ProcessNotebook}->GetSelection]->{FlagFiles}])});
-	EVT_LISTBOX_DCLICK($filespanel,$tax_widget,sub{OkDialog->new($self,"Delete","Delete Taxonomy File?",\&Display::DeleteListItem,
-		[$tax_widget,$self->{Processes}->[$self->{ProcessNotebook}->GetSelection]->{TaxFiles}])});
-	EVT_LISTBOX_DCLICK($filespanel,$class_widget,sub{OkDialog->new($self,"Delete","Delete Classification File?",\&Display::DeleteListItem,
-		[$class_widget,$self->{Processes}->[$self->{ProcessNotebook}->GetSelection]->{ClassFiles}])});
-	
+	my $filespanel = $self->InputFilesMenu($page);
+	my $classificationpanel = $self->ClassificationMenu($page);
 	my $parameterspanel = $self->ParameterMenu($page);
-	$parameterspanel->SetBackgroundColour($brown);
+	my $add_panel = $self->OutputMenu($page);
 	
-	my $add_panel = Wx::Panel->new($page,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$add_panel->SetBackgroundColour($brown);
-	my $add_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$pagesizer_vert->Add($filespanel,1,wxEXPAND);
 	
-	my $send_title = Wx::StaticText->new($add_panel,-1,"Send Results To:");
-	
-	my $table_check = Wx::CheckBox->new($add_panel,-1,"Database Table");
-	my $text_check = Wx::CheckBox->new($add_panel,-1,"Text Files");
-	my $directory_title = Wx::StaticText->new($add_panel,-1,"Output Directory:");
-	my $directory_widget = Wx::TextCtrl->new($add_panel,-1,"");
-	my $table_title = Wx::StaticText->new($add_panel,-1,"Table Name:");
-	my $table_widget = Wx::TextCtrl->new($add_panel,-1,"");
-	$directory_widget->SetEditable(0);
-	
-	my $check_sizer = Wx::FlexGridSizer->new(2,3,20,20);
-	$check_sizer->AddGrowableCol(2,1);
-	$check_sizer->Add($text_check,1,wxCENTER);
-	$check_sizer->Add($directory_title,1,wxCENTER);
-	$check_sizer->Add($directory_widget,1,wxCENTER|wxEXPAND);
-	$check_sizer->Add($table_check,1,wxCENTER);
-	$check_sizer->Add($table_title,1,wxCENTER);
-	$check_sizer->Add($table_widget,1,wxCENTER|wxEXPAND);
-	EVT_CHECKBOX($add_panel,$text_check,sub{$self->DirectoryEntered($text_check,$directory_widget,"Choose Directory")});
-	EVT_CHECKBOX($add_panel,$table_check,sub{$self->TableChecked($table_check,$table_widget)});
-	EVT_TEXT($add_panel,$table_widget,sub{$self->TableEntered($table_check,$table_widget)});
-	
-	my $button_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $add_button = Wx::Button->new($add_panel,-1,'Queue');
-	$button_sizer->Add($add_button,1,wxCENTER);
-	
-	$add_sizer->Add($send_title,1,wxCENTER);
-	$add_sizer->Add($check_sizer,3,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-	$add_sizer->Add($button_sizer,1,wxCENTER);
-	
-	$add_panel->SetSizer($add_sizer);
-	EVT_BUTTON($add_panel,$add_button,sub{$self->NewProcessForQueue()});
-	
-	$pagesizer_horiz->Add($filespanel,2,wxEXPAND);
+	$pagesizer_horiz->Add($classificationpanel,1,wxEXPAND);
 	$pagesizer_horiz->Add($parameterspanel,1,wxEXPAND);
 	
-	$pagesizer_vert->Add($pagesizer_horiz,3,wxEXPAND);
+	$pagesizer_vert->Add($pagesizer_horiz,2,wxEXPAND);
 	$pagesizer_vert->Add($add_panel,1,wxEXPAND);
 	
 	$page->SetSizer($pagesizer_vert);
 	
-	$self->SetStatusText("");
-	
 	return $page;
+}
+
+sub InputFilesMenu {
+	my ($self,$parent) = @_;
+	
+	my $filespanel = Wx::Panel->new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	my $filessizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $singlessizer = Wx::FlexGridSizer->new(3,3,15,15);
+	$singlessizer->AddGrowableCol(1,2);
+	
+	my $blast_label = Wx::StaticText->new($filespanel,-1,'BLAST File:');
+	$self->{BlastFileTextBox} = Wx::TextCtrl->new($filespanel,-1,'',wxDefaultPosition,wxDefaultSize);
+	$self->{BlastFileTextBox}->SetEditable(0);
+	my $blast_button = Wx::Button->new($filespanel,-1,'Find');
+	$singlessizer->Add($blast_label,1,wxCENTER,0);
+	$singlessizer->Add($self->{BlastFileTextBox},1,wxCENTER|wxEXPAND,0);
+	$singlessizer->Add($blast_button,1,wxCENTER,0);
+	EVT_BUTTON($filespanel,$blast_button,sub{$self->OpenDialogSingle($self->{BlastFileTextBox},'Choose BLAST File')});
+	
+	my $fasta_label = Wx::StaticText->new($filespanel,-1,'FASTA File:');
+	$self->{FastaFileTextBox} = Wx::TextCtrl->new($filespanel,-1,'',wxDefaultPosition,wxDefaultSize);
+	$self->{FastaFileTextBox}->SetEditable(0);
+	my $fasta_button = Wx::Button->new($filespanel,-1,'Find');
+	$singlessizer->Add($fasta_label,1,wxCENTER,0);
+	$singlessizer->Add($self->{FastaFileTextBox},1,wxCENTER|wxEXPAND,0);
+	$singlessizer->Add($fasta_button,1,wxCENTER,0);
+	EVT_BUTTON($filespanel,$fasta_button,sub{$self->OpenDialogSingle($self->{FastaFileTextBox},'Choose FASTA File')});
+	
+	my $center_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxLEFT,0);
+	$center_sizer->Add($singlessizer,4,wxCENTER,0);
+	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxRIGHT,0);
+	$filessizer->Add($center_sizer,3,wxCENTER|wxEXPAND,0);
+	$filespanel->SetSizer($filessizer);
+	
+	EVT_TEXT($filespanel,$self->{BlastFileTextBox},sub{$self->{ParserNotebook}->SetPageText($self->{ParserNotebook}->GetSelection,$self->{BlastFileTextBox}->GetValue)});
+	
+	return $filespanel;
+}
+
+sub ClassificationMenu {
+	my ($self,$parent) = @_;
+	
+	my $classificationpanel = Wx::Panel->new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	my $classificationsizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $title = Wx::StaticText->new($classificationpanel,-1,'Classifications');
+	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$title_sizer->Add($title,1,wxCENTER);
+	
+	my $itemssizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $flag_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $flag_label = Wx::StaticText->new($classificationpanel,-1,'Hits to Flag:');
+	my $flag_label_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	$flag_label_sizer->Add($flag_label,1,wxCENTER);
+	
+	my $flag_text_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $flag_button = Wx::Button->new($classificationpanel,-1,'Add');
+	my $flag_text = Wx::ListBox->new($classificationpanel,-1,wxDefaultPosition,wxDefaultSize);
+	$flag_text_sizer->Add($flag_button,1,wxTOP|wxCENTER,3);
+	$flag_text_sizer->Add($flag_text,3,wxEXPAND|wxCENTER,3);
+	EVT_BUTTON($classificationpanel,$flag_button,sub{$self->OpenDialogMultiple($flag_text,'Find Flag File');});
+	
+	$flag_sizer->Add($flag_label_sizer,1,wxEXPAND);
+	$flag_sizer->Add($flag_text_sizer,1,wxEXPAND);
+	
+	my $class_sizer =  Wx::BoxSizer->new(wxHORIZONTAL);
+	my $class_label = Wx::StaticText->new($classificationpanel,-1,'Other Classification:');
+	my $class_label_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	$class_label_sizer->Add($class_label,1,wxCENTER);
+	
+	my $class_text_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $class_button = Wx::Button->new($classificationpanel,-1,'Add');
+	my $class_text = Wx::ListBox->new($classificationpanel,-1,wxDefaultPosition,wxDefaultSize);
+	$class_text_sizer->Add($class_button,1,wxTOP|wxCENTER,3);
+	$class_text_sizer->Add($class_text,3,wxEXPAND|wxCENTER,3);
+	EVT_BUTTON($classificationpanel,$class_button,sub{$self->OpenDialogMultiple($class_text,'Find Classification File');});
+	
+	$class_sizer->Add($class_label_sizer,1,wxEXPAND);
+	$class_sizer->Add($class_text_sizer,1,wxEXPAND);
+	
+	$itemssizer->Add($flag_sizer,1,wxEXPAND|wxBOTTOM,15);
+	$itemssizer->Add($class_sizer,1,wxEXPAND|wxTOP,15);
+
+	$classificationsizer->Add($title_sizer,1,wxCENTER);
+	$classificationsizer->Add($itemssizer,4,wxEXPAND);
+	
+	$classificationpanel->SetSizer($classificationsizer);
+	
+	EVT_LISTBOX_DCLICK($classificationpanel,$flag_text,sub{DeleteListItemDialog->new($self->{Parent},"Delete","Delete Flag File?",$flag_text)});
+	EVT_LISTBOX_DCLICK($classificationpanel,$class_text,sub{DeleteListItemDialog->new($self->{Parent},"Delete","Delete Classification File?",$class_text)});
+	
+	return $classificationpanel;
 }
 
 sub ParameterMenu {
 	my ($self,$parent) = @_;
-	my $current_process = $self->{CurrentProcess};
-	my $parameters = $current_process->{Parameters};
+	my $current_parser = $self->{CurrentParser};
+	my $parameters = $current_parser->{Parameters};
 	
 	my $panel = Wx::Panel->new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$panel->SetBackgroundColour($brown);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
@@ -979,9 +911,146 @@ sub ParameterMenu {
 	$sizer->Add($choice_wrap,5,wxEXPAND|wxCENTER);
 	$panel->SetSizer($sizer);
 	
-	EVT_TEXT($panel,$bit_widget,sub{$current_process->SetBit($bit_widget->GetValue)});
+	EVT_TEXT($panel,$bit_widget,sub{$current_parser->SetBit($bit_widget->GetValue)});
 	
 	return $panel;
+}
+
+sub OutputMenu {
+	my ($self,$parent) = @_;
+	
+	my $add_panel = Wx::Panel->new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	my $add_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $send_title = Wx::StaticText->new($add_panel,-1,"Send Results To:");
+	
+	my $table_check = Wx::CheckBox->new($add_panel,-1,"Database Table");
+	my $text_check = Wx::CheckBox->new($add_panel,-1,"Text Files");
+	my $directory_title = Wx::StaticText->new($add_panel,-1,"Output Directory:");
+	$self->{DirectoryTextBox} = Wx::TextCtrl->new($add_panel,-1,"");
+	my $table_title = Wx::StaticText->new($add_panel,-1,"Table Name:");
+	$self->{TableTextBox} = Wx::TextCtrl->new($add_panel,-1,"");
+	$self->{DirectoryTextBox}->SetEditable(0);
+	
+	my $check_sizer = Wx::FlexGridSizer->new(2,3,20,20);
+	$check_sizer->AddGrowableCol(2,1);
+	$check_sizer->Add($text_check,1,wxCENTER);
+	$check_sizer->Add($directory_title,1,wxCENTER);
+	$check_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
+	$check_sizer->Add($table_check,1,wxCENTER);
+	$check_sizer->Add($table_title,1,wxCENTER);
+	$check_sizer->Add($self->{TableTextBox},1,wxCENTER|wxEXPAND);
+	EVT_CHECKBOX($add_panel,$text_check,sub{$self->DirectoryChecked($text_check,"Choose Directory")});
+	EVT_CHECKBOX($add_panel,$table_check,sub{$self->TableChecked($table_check)});
+	EVT_TEXT($add_panel,$self->{TableTextBox},sub{$self->TableEntered($table_check)});
+	
+	my $button_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $add_button = Wx::Button->new($add_panel,-1,'Queue');
+	$button_sizer->Add($add_button,1,wxCENTER);
+	
+	$add_sizer->Add($send_title,1,wxCENTER);
+	$add_sizer->Add($check_sizer,3,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+	$add_sizer->Add($button_sizer,1,wxCENTER);
+	
+	$add_panel->SetSizer($add_sizer);
+	EVT_BUTTON($add_panel,$add_button,sub{$self->NewProcessForQueue()});
+	
+	return $add_panel;
+}
+
+sub DeleteParser {
+	my ($self) = @_;
+	my $selection = $self->{QueueList}->GetSelection;
+	splice(@{$self->{Parsers}},$selection,1);
+	$self->{QueueList}->Delete($selection);
+	$self->{ParserNotebook}->RemovePage($selection);
+}
+
+sub DisplayParserMenu {
+	my ($self,$selection) = @_;
+	$self->{ParserNotebook}->SetSelection($selection);
+}
+
+package Display;
+use base 'Wx::Frame';
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_BUTTON);
+use Wx::Event qw(EVT_MENU);
+use Wx::Event qw(EVT_TREE_ITEM_ACTIVATED);
+use Wx::Event qw(EVT_TEXT);
+use Wx::Event qw(EVT_COMBOBOX);
+use Wx::Event qw(EVT_CHECKBOX);
+use Wx::Event qw(EVT_LISTBOX);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+
+sub new {
+	my ($class) = shift;
+
+	my $self = $class->SUPER::new(undef,-1,'PACT',[-1,-1],[1200,600],);
+	
+	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{Panel} = Wx::Panel->new($self,-1);
+	$self->{Panel}->SetBackgroundColour($turq);
+	$self->{ParserPanel} = undef;
+	$self->{PiePanel} = undef;
+	$self->{ResultsPanel} = undef;
+	$self->{TablePanel} = undef;
+	
+	$self->{Sizer}->Add($self->{Panel},1,wxGROW);
+	$self->SetSizer($self->{Sizer});
+	
+	
+	$self->{Sync_Tax} = (); # array of taxonomy objects to be processed into pie charts.
+	$self->{Sync_Class} = (); # array of classification objects to be processed into pie charts.
+	
+	$self->Centre();
+	return $self;
+}
+
+sub RunParsers {
+	my ($self) = @_;
+	for my $parser(@{$self->{ParserPanel}->{Parsers}}) {
+		$parser->Parse();
+	}
+	$self->SetStatusText("Done Processing");
+}
+
+sub RunProcessCheck {
+	my ($self,$event)  = @_;
+	my $parsercheck = $self->{ParserPanel}->CheckProcess();
+	my $count = scalar(@{$self->{ParserPanel}->{Parsers}});
+	if ($parsercheck == 1) {
+		$self->{ParserPanel}->{QueueList}->InsertItems([$self->{ParserPanel}->{ParserNotebook}->GetPageText($self->{ParserPanel}->{ParserNotebook}->GetSelection)],$count-1);
+		OkDialog->new($self,"Run Parsers","$count process(es) to run. Continue?",\&Display::RunParsers,[]);
+	}
+	elsif ($parsercheck == 0 and scalar(@{$self->{ParserPanel}->{Parsers}})>1) {
+		OkDialog->new($self,"Incomplete Process","There is an incomplete process. Continue?",
+		\&OkDialog,[$self,"Run Parsers","$count process(es) to run. Continue?",\&Display::RunParsers,[]]);
+	}
+	else {
+	}
+}
+
+sub OnProcessClicked {
+	my ($self,$event) = @_;
+	$self->{Panel}->Hide;
+	if (defined $self->{PiePanel}) {
+		$self->{PiePanel}->Hide;
+	}
+	if (defined $self->{ResultsPanel}) {
+		$self->{ResultsPanel}->Hide;
+	}
+	$self->Refresh;
+	if (defined $self->{ParserPanel}) {
+		$self->{ParserPanel}->Show;
+	}
+	else {
+		$self->{ParserPanel} = ParserMenu->new($self);
+	}
+	$self->{Sizer}->Clear;
+	$self->{Sizer}->Add($self->{ParserPanel},1,wxEXPAND);
+	$self->Layout;
+	$self->{FileMenu}->Enable(103,1);
 }
 
 sub ResultMenu {
@@ -993,8 +1062,8 @@ sub ResultMenu {
 	if (defined $self->{PiePanel}) {
 		$self->{PiePanel}->Hide;
 	}
-	if (defined $self->{ProcessPanel}) {
-		$self->{ProcessPanel}->Hide;
+	if (defined $self->{ParserPanel}) {
+		$self->{ParserPanel}->Hide;
 	}
 	$self->Refresh;
 	
@@ -1021,8 +1090,8 @@ sub ResultMenu {
 sub InitializePieMenu {
 	my($self,$event) = @_;
 	$self->{Panel}->Hide;
-	if (defined $self->{ProcessPanel}) {
-		$self->{ProcessPanel}->Hide;
+	if (defined $self->{ParserPanel}) {
+		$self->{ParserPanel}->Hide;
 	}
 	if (defined $self->{ResultsPanel}) {
 		$self->{ResultsPanel}->Hide;
@@ -1054,7 +1123,7 @@ sub TopMenu {
 	my $newblast = $self->{FileMenu}->Append(101,"New BLAST");
 	my $newfasta = $self->{FileMenu}->Append(102,"New FASTA");
 	$self->{FileMenu}->AppendSeparator();
-	my $run = $self->{FileMenu}->Append(103,"Run Processes");
+	my $run = $self->{FileMenu}->Append(103,"Run Parsers");
 	my $close = $self->{FileMenu}->Append(104,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
 	EVT_MENU($self,103,\&RunProcessCheck);
