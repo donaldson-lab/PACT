@@ -8,6 +8,7 @@ package BlastParser;
 use Bio::SearchIO;
 use Bio::SeqIO;
 use XML::Simple;
+use XML::Writer;
 
 sub new {
      
@@ -18,10 +19,10 @@ sub new {
      	FastaFile =>  undef,
      	In => undef,
      	FastaMemory => undef,
-     	Parameters => undef
+     	Parameters => undef,
+     	HasTaxonomy => 0
 	 };
 	 $self->{Processes} = ();
-     
      bless($self,$class);
      return $self;
 
@@ -123,9 +124,18 @@ sub Parse {
 			}
 		}
 		else {
-			# do something with no hits
+			# do something with no hits (send to fasta file)
 		}
+		
 	}
+	
+	for my $process(@{$self->{Processes}}) {
+				$process->EndRoutine();
+	}
+	for my $process(@{$self->{Processes}}) {
+				$process->SaveRoutine();
+	}
+	
 }
 
 # Base class of working with table data. Not to be confused with SendTable.
@@ -169,8 +179,20 @@ sub new {
      return $self;
 }
 
+sub PrintSummaryText {
+	my ($self,$dir) = @_;
+}
+
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
+}
+
+sub EndRoutine {
+	my ($self) = @_;
+}
+
+sub SaveRoutine {
+	my ($self) = @_;
 }
 
 package TextPrinter;
@@ -184,6 +206,7 @@ sub new {
      	OutputDirectory => $dir, # Parent directory in which local output directory will be printed.
 	 };
      
+     $self->{Processes} = ();
      $self->{IO} = IOManager->new();
      bless($self,$class);
      return $self;
@@ -192,6 +215,11 @@ sub new {
 sub SetOutputDir {
 	my ($self,$path) = @_;
 	$self->{OutputDirectory} = $path;
+}
+
+sub AddProcess {
+	my ($self,$process) = @_;
+	push(@{$self->{Processes}},$process);
 }
 
 sub PrintHitFileHeader {
@@ -207,6 +235,11 @@ sub PrintHitFileHeader {
 
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
+	
+	for my $process(@{$self->{Processes}}) {
+		$process->HitRoutine($hitdata);
+	}
+	
 	my $query = $hitdata->[0];
 	my $qlength = $hitdata->[1];
 	my $sequence = $hitdata->[2];
@@ -267,16 +300,48 @@ sub PrintFasta {
   	close FASTAFILE;
 }
 
+sub EndRoutine {
+	my ($self) = @_;
+	
+	# Needs: cleaning up header files and,
+	# Creating No Hits folder and fasta file
+	
+	for my $process(@{$self->{Processes}}) {
+				$process->EndRoutine();
+	}
+	
+	$self->PrintSummaryTexts();
+}
+
+sub SaveRoutine {
+	my ($self) = @_;
+	for my $process(@{$self->{Processes}}) {
+				$process->SaveRoutine();
+	}
+}
+
+sub PrintSummaryTexts {
+	my ($self) = @_;
+	for my $process (@{$self->{Processes}}) {
+		$process->PrintSummaryText($self->{OutputDirectory});
+	}
+}
+
 
 package FlagItems;
 use base ("TextPrinter");
 
+sub new {
+	my ($class,$dir,$flag_file) = @_;
+	my $self = $class->SUPER::new($dir);
+	$self->Generate($flag_file);
+	return $self;
+}
+
 sub Generate {
-	my ($self,$flag_name,$dir) = @_;
+	my ($self,$flag_file) = @_;
 	
-	$self->{OutputDirectory} = $dir;
-	
-	open(FLAG,$flag_name);
+	open(FLAG,$flag_file);
 	my $flagtitle = <FLAG>;
 	chomp $flagtitle;
 	$self->{Title} = $flagtitle;
@@ -370,30 +435,19 @@ sub PrintFound {
 	chdir($self->{OutputDirectory});
 }
 
-# For individual trees.
-sub PrintSummaryText {
-	my ($self,$tree,$data) = @_;
-	my $root = $tree->get_root_node;
-	
-	## BioPerl's depth routine does not seem to work well.
-	sub GetDepth {
-		my ($node) = @_;
-		my $depth = 0;
-		while (defined $node->ancestor) {
-			$depth++;
-			$node = $node->ancestor;
-		}
-		return $depth;
+sub SaveRoutine {
+	my ($self) = @_;
+	for my $process(@{$self->{Processes}}) {
+				$process->SaveRoutine();
 	}
-	
-	open(TREE,'>>' . $root->node_name . '.pact.txt');
-	
-	for my $node($tree->get_nodes) {
-		my $space = "";
-		for (my $i=0; $i<GetDepth($node); $i++) {
-			$space = $space . "  ";
-		}
-		print TREE $space . $node->node_name . ": " . $data->{$node->id} . "\n";
+	$self->{Taxonomy}->SaveRoutine();
+}
+
+sub PrintSummaryTexts {
+	my ($self) = @_;
+	$self->{Taxonomy}->PrintSummaryText($self->{OutputDirectory});
+	for my $process (@{$self->{Processes}}) {
+		$process->PrintSummaryText($self->{OutputDirectory});
 	}
 }
 
@@ -401,14 +455,12 @@ package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
 use base ("Process");
-use Time::HiRes;
 
 sub new {
 	my ($class) = @_;
      
-    my $self = {
-     	TaxonomyDB => undef
-	};
+    my $self = $class->SUPER::new();
+	$self->{TaxonomyDB} = undef;
 	$self->{Data} = (); # Data is hit id to value.
 	$self->{SpeciesToAncestor} = (); # hash of species id to ancestor id.
 	$self->{IdToTaxon} = ();
@@ -428,9 +480,11 @@ sub HitRoutine {
 	my ($self,$hitdata) = @_;
 	my $gi = $hitdata->[4];
 	my $hitname = $hitdata->[3];
-	#print $gi . " " . $hitname . "\n";
-	#Time::HiRes::usleep(100);
-	$self->GenerateBranch($hitname,$gi);
+	eval {
+		$self->GenerateBranch($hitname,$gi);
+	};
+	if ($@) {
+	};
 }
 
 ## Implementation specific
@@ -441,7 +495,7 @@ sub GetSpeciesTaxon {
 sub GenerateBranch {
 	my ($self,$hitname,$id) = @_;
 	my $species = $self->GetSpeciesTaxon($hitname,$id);
-	$self->{IdToTaxon}{$id} = $self->GetSpeciesTaxon($hitname,$id);
+	$self->{IdToTaxon}{$id} = $species;
 	$self->AddData($species->id);
 	my @path_names = ($hitname);
 	while (my $parent = $self->{TaxonomyDB}->ancestor($species)) {
@@ -521,22 +575,9 @@ sub GetTrees {
 	return \@trees;
 }
 
-# save by Id # Name # Number.
-sub SaveTreesInternal {
-	my ($self,$dir,$trees) = @_;
-	for my $tree (@$trees) {
-		my $title = $tree->get_root_node()->node_name;
-		for my $node($tree->get_nodes) {
-			my $id = $node->id;
-			my $name = $node->node_name;
-			$node->id($id . "#" . $self->{Data}{$id});
-		}
-		chdir($dir);
-		open(my $handle, ">>" . $title . ".tre");
-		my $out = new Bio::TreeIO(-fh => $handle, -format => 'newick');
-		$out->write_tree($tree);
-		close $handle;
-	}
+# XML Format?
+sub SaveRoutine {
+	my ($self,$dir) = @_;
 }
 
 ## add file format as parameter. Save trees in individual files.
@@ -618,8 +659,38 @@ sub PieDataRankSaved {
 			$piedata{$taxon->node_name} = $value;
 		}
 	}
-	
 	return \%piedata;
+}
+
+sub PrintSummaryText {
+	my ($self,$dir) = @_;
+	
+	chdir($dir);
+	
+	## BioPerl's depth routine does not seem to work well.
+	sub GetDepth {
+		my ($node) = @_;
+		my $depth = 0;
+		while (defined $node->ancestor) {
+			$depth++;
+			$node = $node->ancestor;
+		}
+		return $depth;
+	}
+	
+	my $trees = $self->GetTrees();
+	
+	for my $tree (@$trees) {
+		my $root = $tree->get_root_node;
+		open(TREE,'>>' . $root->node_name . '.pact.txt');
+		for my $node($tree->get_nodes) {
+			my $space = "";
+			for (my $i=0; $i<GetDepth($node); $i++) {
+				$space = $space . "  ";
+			}
+			print TREE $space . $node->node_name . ": " . $self->{Data}->{$node->id} . "\n";
+		}
+	}
 }
 
 package FlatFileTaxonomy;
@@ -659,6 +730,13 @@ sub GetSpeciesTaxon {
 
 package Classification;
 use base ("Process");
+
+sub new {
+	my ($class,$file_name) = @_;
+	my $self = $class->SUPER::new();
+	$self->Generate($file_name);
+	return $self;
+}
 
 sub Generate {
 	my ($self,$file_name) = @_;
@@ -718,9 +796,8 @@ sub HitRoutine {
 
 sub PrintSummaryText {
 	my ($self,$dir) = @_;
-	
 	chdir($dir);
-	
+
 	open(DATA,'>>' . $self->{Title} . '.pact.txt');
 	
 	my %reverse = reverse %{$self->{ItemToParent}};
@@ -732,8 +809,12 @@ sub PrintSummaryText {
 				print DATA "  " . $item . ": " . $self->{Data}{$item} . "\n";
 			}
 		}
-	}
-	
+	}	
+}
+
+# XML Format?
+sub SaveRoutine {
+	my ($self,$dir) = @_;
 }
 
 

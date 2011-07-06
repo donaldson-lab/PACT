@@ -599,7 +599,8 @@ use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
 
 sub new {
-	my ($class,$parent,$taxonomy) = @_;
+	my $class = $_[0];
+	my $parent = $_[1];
 	my $px = $parent->GetPosition()->x;
 	my $py = $parent->GetPosition()->y;
 	my $pwidth = $parent->GetSize()->width;
@@ -613,13 +614,13 @@ sub new {
 	$self->{Panel} = Wx::Panel->new($self,-1);
 	$self->{Panel}->SetBackgroundColour($blue);
 	bless $self,$class;
-	$self->PanelItems($taxonomy);
+	$self->PanelItems($_[2]);
 	$self->Show;
 	return $self;
 }
 
 sub PanelItems {
-	my ($self,$taxonomy) = @_;
+	my $self = $_[0];
 	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
 
 	my $source_panel = Wx::Panel->new($self->{Panel},-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
@@ -642,7 +643,7 @@ sub PanelItems {
 	my $rank_label_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $rank_label = Wx::StaticText->new($rank_panel,-1,"Ranks: ");
 	$rank_label_sizer->Add($rank_label,1,wxCENTER);
-	my $rank_list = Wx::ListBox->new($rank_panel,-1,wxDefaultPosition,wxDefaultSize,["a","b","c"]);
+	my $rank_list = Wx::ListBox->new($rank_panel,-1,wxDefaultPosition,wxDefaultSize,["Order","Family","Genus","Species"]);
 	my $rank_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $rank_button = Wx::Button->new($rank_panel,-1,'Add');
 	$rank_button_sizer->Add($rank_button,1,wxCENTER);
@@ -683,6 +684,9 @@ sub PanelItems {
 	$save_sizer->Add($save_button,1,wxCENTER);
 	$save_sizer_outer->Add($save_sizer,1,wxCENTER);
 	$save_panel->SetSizer($save_sizer_outer);
+	
+	my $parserpanel = $_[1];
+	EVT_BUTTON($self->{Panel},$save_button,sub{$self->InitializeTaxonomy($parserpanel)});
 
 	$self->{Sizer}->Add($source_panel,1,wxEXPAND);
 	$self->{Sizer}->Add($rank_panel,2,wxEXPAND);
@@ -692,6 +696,24 @@ sub PanelItems {
 	
 	$self->{Panel}->Layout;
 	$self->Layout;
+}
+
+sub InitializeTaxonomy {
+	
+	my $self = $_[0];
+
+	$_[1]->{Taxonomy} = undef;
+	
+	my @ranks = $self->{RankList}->GetStrings;
+	my @roots = $self->{RootList}->GetStrings;
+	
+	if ($self->{SourceCombo}->GetValue eq "Connection") {
+		$_[1]->{Taxonomy} = ConnectionTaxonomy->new(\@ranks,\@roots);
+	}
+	else {
+		
+	}
+	$self->Destroy;
 }
 
 package ParserMenu;
@@ -922,7 +944,7 @@ sub ClassificationMenu {
 	$tax_sizer_1->Add($tax_sizer_2,1,wxCENTER);
 	
 	
-	EVT_BUTTON($classificationpanel,$tax_add_button,sub{TaxonomyPanel->new($parent,$self->{Taxonomy})});
+	EVT_BUTTON($classificationpanel,$tax_add_button,sub{TaxonomyPanel->new($parent,$self)});
 	
 	my $class_flag_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
@@ -959,7 +981,7 @@ sub ClassificationMenu {
 	$class_list_sizer->Add($self->{ClassificationListBox},1,wxEXPAND);
 	$class_text_sizer->Add($class_button_sizer,1,wxBOTTOM|wxCENTER,5);
 	$class_text_sizer->Add($class_list_sizer,3,wxCENTER|wxEXPAND);
-	EVT_BUTTON($classificationpanel,$class_button,sub{$self->OpenDialogMultiple($self->{ClassificationListBox},'Find Classification File',\%{$self->{FlagLabelToPath}});});
+	EVT_BUTTON($classificationpanel,$class_button,sub{$self->OpenDialogMultiple($self->{ClassificationListBox},'Find Classification File',\%{$self->{ClassLabelToPath}});});
 	
 	$class_sizer->Add($class_label_sizer,1,wxEXPAND);
 	$class_sizer->Add($class_text_sizer,1,wxEXPAND);
@@ -1250,17 +1272,42 @@ sub RunParsers {
 		my $parser = BlastParser->new();
 		$parser->SetBlastFile($page->{BlastFilePath});
 		$parser->SetFastaFile($page->{FastaFilePath});
+		
+		my @classes = ();
+		my @flags = ();
+		for my $class_label (keys(%{$page->{ClassLabelToPath}})) {
+			my $class = Classification->new($page->{ClassLabelToPath}->{$class_label});
+			push(@classes,$class);
+		}
+		for my $flag_label (keys(%{$page->{FlagLabelToPath}})) {
+			my $flag = FlagItems->new($page->{OutputDirectoryPath},$page->{FlagLabelToPath}{$flag_label});
+			push(@flags,$flag);
+		}
+		
 		if ($page->{OutputTableName} ne "") {
 			my $table = SendTable->new($page->{OutputTableName});
 			$parser->AddProcess($table);
 		}
-		for my $class_label (keys(%{$page->{ClassLabelToPath}})) {
-			my $class = Classification->new();
-			$class->Generate($page->{ClassLabelToPath}->{$class_label});
-			$parser->AddProcess($class);
+		if ($page->{OutputDirectoryPath} ne "") {
+			my $text;
+			if (defined $page->{Taxonomy}) {
+				$text = TaxonomyTextPrinter->new($page->{OutputDirectoryPath},$page->{Taxonomy});
+			}
+			else {
+				$text = TextPrinter->new($page->{OutputDirectoryPath});
+			}
+			for my $class(@classes) {
+				$text->AddProcess($class);
+			}
+			for my $flag(@flags) {
+				$text->AddProcess($flag);
+			}
+			$parser->AddProcess($text);
 		}
-		for my $flag_label (keys(%{$page->{FlagLabelToPath}})) {
+		else {
+			
 		}
+		
 		push(@{$self->{QueuePanel}->{Parsers}},$parser);
 	}
 	
