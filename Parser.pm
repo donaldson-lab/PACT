@@ -1,4 +1,7 @@
 use strict;
+use IOManager;
+
+my $io = IOManager->new();
 
 package Parser;
 
@@ -8,11 +11,10 @@ package BlastParser;
 use Bio::SearchIO;
 use Bio::SeqIO;
 use XML::Simple;
-use XML::Writer;
 
 sub new {
      
-     my ($class) = @_;
+     my ($class,$name) = @_;
      
      my $self = {
      	BlastFile => undef,
@@ -20,7 +22,9 @@ sub new {
      	In => undef,
      	FastaMemory => undef,
      	Parameters => undef,
-     	HasTaxonomy => 0
+     	HasTaxonomy => 0,
+     	Name => $name,
+     	DoneParsing => 0
 	 };
 	 $self->{Processes} = ();
      bless($self,$class);
@@ -110,6 +114,21 @@ sub HitData {
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
 
+sub NoHits {
+	my ($self,$query_name) = @_;
+	
+	my $sequence = $self->{FastaMemory}{$query_name};
+	
+	chdir($io->{Directory});
+	open(NOHITSFASTA, '>>' . "NoHits.pact.fasta");
+	
+	print NOHITSFASTA ">" . $query_name . "\n";
+  	print NOHITSFASTA $sequence . "\n";
+  	print NOHITSFASTA "\n";
+  	
+  	close NOHITSFASTA;
+}
+
 sub Parse {
 	
 	my ($self) = @_;
@@ -124,7 +143,7 @@ sub Parse {
 			}
 		}
 		else {
-			# do something with no hits (send to fasta file)
+			#$self->NoHits($result->query_name);
 		}
 		
 	}
@@ -133,7 +152,7 @@ sub Parse {
 				$process->EndRoutine();
 	}
 	for my $process(@{$self->{Processes}}) {
-				$process->SaveRoutine();
+				$process->SaveRoutine($self->{Name});
 	}
 	
 }
@@ -192,7 +211,7 @@ sub EndRoutine {
 }
 
 sub SaveRoutine {
-	my ($self) = @_;
+	my ($self,$parser_name) = @_;
 }
 
 package TextPrinter;
@@ -314,9 +333,9 @@ sub EndRoutine {
 }
 
 sub SaveRoutine {
-	my ($self) = @_;
+	my ($self,$parser_name) = @_;
 	for my $process(@{$self->{Processes}}) {
-				$process->SaveRoutine();
+		$process->SaveRoutine($parser_name);
 	}
 }
 
@@ -436,11 +455,11 @@ sub PrintFound {
 }
 
 sub SaveRoutine {
-	my ($self) = @_;
+	my ($self,$parser_name) = @_;
 	for my $process(@{$self->{Processes}}) {
-				$process->SaveRoutine();
+		$process->SaveRoutine($parser_name);
 	}
-	$self->{Taxonomy}->SaveRoutine();
+	$self->{Taxonomy}->SaveRoutine($parser_name);
 }
 
 sub PrintSummaryTexts {
@@ -454,6 +473,7 @@ sub PrintSummaryTexts {
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
+use XML::Writer;
 use base ("Process");
 
 sub new {
@@ -463,7 +483,7 @@ sub new {
 	$self->{TaxonomyDB} = undef;
 	$self->{Data} = (); # Data is hit id to value.
 	$self->{SpeciesToAncestor} = (); # hash of species id to ancestor id.
-	$self->{IdToTaxon} = ();
+	$self->{IdToSpeciesTaxon} = ();
     bless($self,$class);
     return $self;
 }
@@ -495,36 +515,40 @@ sub GetSpeciesTaxon {
 sub GenerateBranch {
 	my ($self,$hitname,$id) = @_;
 	my $species = $self->GetSpeciesTaxon($hitname,$id);
-	$self->{IdToTaxon}{$id} = $species;
+	$self->{IdToSpeciesTaxon}{$id} = $species;
 	$self->AddData($species->id);
 	my @path_names = ($hitname);
 	while (my $parent = $self->{TaxonomyDB}->ancestor($species)) {
 		$species = $parent;
-		my $descendent_name = $parent->node_name;
-		my $descendent_id = $parent->id;
-		if (keys %{$self->{Roots}} and defined $self->{Roots}->{$descendent_name}) {
-			$self->{SpeciesToAncestor}{$id} = $descendent_id;
-			$self->{IdToTaxon}{$descendent_id} = $parent;
-			push(@path_names,$descendent_name);
-			last;
+		my $descendent_name = $species->node_name;
+		my $descendent_id = $species->id;
+
+		if (keys %{$self->{Ranks}} and not defined $self->{Ranks}->{$species->rank}) {
+			next;
 		}
-		elsif (keys %{$self->{Ranks}} and not defined $self->{Ranks}->{$parent->rank}) {
-		}
-		elsif (keys %{$self->{Roots}} and not defined $parent->parent_id) {
-			$self->{SpeciesToAncestor}{$id} = $descendent_id;
-			$self->{IdToTaxon}{$descendent_id} = $parent;
-			@path_names = ();
-			last;
-		}
-		elsif (not defined $parent->parent_id) {
-			$self->{SpeciesToAncestor}{$id} = $descendent_id;
-			$self->{IdToTaxon}{$descendent_id} = $parent;
-			push(@path_names,$descendent_name);
-			last;
+		
+		$self->AddData($descendent_id);  #wasted space in Data if branch is not in Roots.
+		
+		if (keys %{$self->{Roots}}) {
+			if (defined $self->{Roots}->{$descendent_name}) {
+				$self->{SpeciesToAncestor}{$id} = $descendent_id;
+				push(@path_names,$descendent_name);
+				last;
+			}
+			else {
+				@path_names = ();
+				last;
+			}
 		}
 		else {
-			$self->AddData($descendent_id);
-			push(@path_names,$descendent_name);
+			if (not defined $species->parent_id) {
+				$self->{SpeciesToAncestor}{$id} = $descendent_id;
+				push(@path_names,$descendent_name);
+				last;
+			}
+			else {
+				push(@path_names,$descendent_name);
+			}
 		}
 	}
 	return \@path_names;
@@ -555,7 +579,7 @@ sub GetTrees {
 	for my $ancestor(keys(%taxonomies)) {
 		my $tree;
 		for my $id(@{$taxonomies{$ancestor}}) {
-			my $taxon = $self->{IdToTaxon}{$id};
+			my $taxon = $self->{IdToSpeciesTaxon}{$id};
 			# code somewhat borrowed from BioPerl db::Taxonomy get_tree, but for ids
 			eval {
 				if (defined $tree) {
@@ -575,9 +599,36 @@ sub GetTrees {
 	return \@trees;
 }
 
-# XML Format?
 sub SaveRoutine {
-	my ($self,$dir) = @_;
+	my ($self,$parser_name) = @_;
+	
+	sub RecursiveTraversal {
+		my ($root,$writer) = @_;
+		my @nodes = $root->each_Descendent;
+		for my $node(@nodes) {
+			$writer->startTag("node","rank"=>$node->rank,"taxonid"=>$node->id,"name"=>$node->node_name,"seqid"=>0 ,"value"=>$self->{Data}{$node->id});
+			RecursiveTraversal($node,$writer);
+			$writer->endTag("node");
+		}
+	}
+	
+	my $tax_dir = $io->{TaxonomyDirectory} . $io->{path_separator} . $parser_name;
+	mkdir($tax_dir);
+	chdir($tax_dir);
+	
+	my $trees = $self->GetTrees();
+	
+	for my $tree (@$trees) {
+		my $root = $tree->get_root_node();
+		my $output = new IO::File(">" . $root->node_name . ".xml");
+		my $writer = new XML::Writer(OUTPUT => $output);
+		$writer->startTag("root","rank"=>$root->rank,"taxonid"=>$root->id,"name"=>$root->node_name,"seqid"=>0 ,"value"=>$self->{Data}{$root->id});
+		RecursiveTraversal($root,$writer);
+		$writer->endTag("root");
+		$writer->end();
+		$output->close();
+	}
+	chdir($io->{Directory});
 }
 
 ## add file format as parameter. Save trees in individual files.
@@ -596,70 +647,6 @@ sub SaveTrees {
 		$out->write_tree($tree);
 		close $handle;
 	}
-}
-
-sub PieDataNodeSaved {
-	my ($self,$tree,$get_id,$rank) = @_;
-	my %piedata = ();
-	my $subroot;
-	
-	for my $node($tree->get_nodes) {
-		my @split = split(/#/,$node->id);
-		my $id = $split[0];
-		my $value = $split[1];
-		if ($id == $get_id) {
-			$subroot = $node;
-			last;
-		}
-	}
-	
-	my $subtree = Bio::Tree::Tree->new(-root => $subroot, -nodelete => 1);
-	
-	sub CountPieData {
-		my ($name,$value) = @_;
-		if (not defined $piedata{$name}) {
-			$piedata{$name} = $value;
-		}
-		else {
-			$piedata{$name} += $value;
-		}
-	}
-	
-	## This might be really slow.
-	for my $subnode($subtree->get_nodes) {
-		my @split = split(/#/,$subnode->id);
-		my $id = $split[0];
-		my $value = $split[1];
-		my $subtax = $self->{TaxonomyDB}->get_taxon(-taxonid => $id);
-		if ($subtax->rank eq $rank) {
-			CountPieData($subtax->node_name,$value);
-		}
-		elsif ($subtax->ancestor()->rank eq 'species') {  #special case
-			CountPieData($subtax->ancestor()->node_name,$value);
-		}
-		else {
-		}
-	}
-
-	return \%piedata;
-}
-
-sub PieDataRankSaved {
-	my ($self,$tree,$rank) = @_;
-	
-	my %piedata = ();
-	
-	# This can be made faster. Search breadth-first, then quit when level is traversed?
-	for my $node($tree->get_nodes) {
-		my @split = split(/#/,$node->id);
-		my $id = $split[0];
-		my $value = $split[1];
-		my $taxon = $self->{TaxonomyDB}->get_taxon(-taxonid => $id);
-		if ($taxon->rank eq $rank) {
-			$piedata{$taxon->node_name} = $value;
-		}
-	}
-	return \%piedata;
 }
 
 sub PrintSummaryText {
@@ -812,9 +799,9 @@ sub PrintSummaryText {
 	}	
 }
 
-# XML Format?
+
 sub SaveRoutine {
-	my ($self,$dir) = @_;
+	my ($self,$parser_name) = @_;
 }
 
 
@@ -832,8 +819,9 @@ sub new {
      	QueryTable => $name,
      	HitTable => $name . "Hits"
 	 };
-	 
+	 chdir($io->{SQLiteDatabaseDirectory});
 	 $self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Couldn't open database");
+	 chdir($io->{Directory});
 	 # 13 total fields
 	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{QueryTable} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
      $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{HitTable} .  "(hitname TEXT,gi INTEGER,query TEXT,rank INTEGER,description TEXT,percent REAL,bit REAL,
@@ -927,5 +915,109 @@ sub ByUniqueHit {
 		 }
 	}
 }
+
+package TaxonomyXML;
+use XML::Simple;
+
+sub new {
+	my ($class,$file_name) = @_;
+	my $self = {
+	};
+	$self->{XML} = new XML::Simple;
+	$self->{TaxonomyHash} = $self->{XML}->XMLin($file_name);
+	bless ($self,$class);
+	return $self;
+}
+
+sub GetXMLHash {
+	my $self = shift;
+	return $self->{TaxonomyHash};
+}
+
+# node is a hash starting at a node.
+sub PieDataRank {
+	my ($self,$node,$rank) = @_;
+	my %pie_data = ();
+	my @names = ();
+	my @values = ();
+	my $total = 0;
+	
+	sub RecursiveTraversal {
+		my ($rnode,$parent) = @_;
+
+		if (not defined $rnode->{"taxonid"}) {
+			for my $key(keys(%$rnode)) {
+				RecursiveTraversal($rnode->{$key},$key);
+			}
+		}
+		else {
+			if ($rnode->{"rank"} eq $rank) {
+				my $name;
+				if (not $rnode->{"name"}) {
+					$name = $parent;
+				}
+				else {
+					$name = $rnode->{"name"};
+				}
+				push(@names,$name);
+				push(@values,$rnode->{"value"});
+				$total += $rnode->{"value"};
+			}
+			
+			if (defined $rnode->{"node"}) {
+				RecursiveTraversal($rnode->{"node"},"");
+			}
+			else {
+				return 0;
+			}
+		}
+	}
+
+	RecursiveTraversal($node,"");
+	$pie_data{"Names"} = \@names;
+	$pie_data{"Values"} = \@values;
+	$pie_data{"Total"} = $total;
+	return \%pie_data;
+}
+
+sub PieDataNode {
+	my ($self,$node_name,$sub_rank) = @_;
+	
+	my $sub_node;
+	
+	sub RecursiveTraversalFindNode {
+		my ($node,$parent) = @_;
+		if (not defined $node->{"taxonid"}) {
+			for my $key(keys(%$node)) {
+				if ($key eq $node_name) {
+					$sub_node = $node->{$key};
+					return 1;
+				}
+				else {
+					RecursiveTraversalFindNode($node->{$key},$key);
+				}
+			}
+		}
+		else {
+			if (defined $node->{"node"}) {
+				if ($node->{"name"} eq $node_name) {
+					$sub_node = $node;
+					return 1;
+				}
+				else {
+					RecursiveTraversalFindNode($node->{"node"},"");
+				}
+			}
+			else {
+				return 0;
+			}
+		}
+	}
+	
+	RecursiveTraversalFindNode($self->{TaxonomyHash},"");
+	return $self->PieDataRank($sub_node,$sub_rank);
+}
+
+
 
 1;
