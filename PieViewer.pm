@@ -1,12 +1,17 @@
 use Wx;
-use Cwd;
 
 my $turq = Wx::Colour->new("TURQUOISE");
 my $blue = Wx::Colour->new(130,195,250);
 my $brown = Wx::Colour->new(205,133,63);
 
-my $cwd = getcwd;
-my $ColorPrefs = $cwd . "/ColorPrefs";
+
+=head1 
+Pie Data is:
+Names (array)
+Values (array)
+Total
+=cut
+
 
 package PiePanel;
 use base 'Wx::Panel';
@@ -412,18 +417,20 @@ use Wx::Event qw(EVT_LEFT_DOWN);
 use Wx::Event qw(EVT_NOTEBOOK_PAGE_CHANGED);
 
 sub new {
-	my ($class,$data,$titles,$x,$y,$sync) = @_;
+	my ($class,$data,$titles,$labels,$x,$y,$control) = @_;
 	my $self = $class->SUPER::new(undef,-1,'Pie Chart Viewer',[$x,$y],[500,500],);
 	$self->TopMenu($single);
 	$self->{Notebook} = undef;
-	$self->{Sync} = $sync;
-	$self->Notebook($data,$titles,$sync);
+	$self->{Sync} = 0;
+	$self->Notebook($data,$titles,$labels);
+	$self->{Control} = $control;
 	bless $self,$class;
+	$self->Show;
 	return $self;
 }
 
 sub Notebook {
-	my($self,$data,$titles) = @_;
+	my($self,$data,$titles,$labels) = @_;
 	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{Notebook} = Wx::Notebook->new($self,-1);
@@ -434,7 +441,7 @@ sub Notebook {
 		my $panel = PiePanel->new($self->{Notebook},$data->[$i],1,$titles->[$i],1,1);
 		$panel->SetBrushes();
 		
-		$self->{Notebook}->AddPage($panel,$titles->[$i]);
+		$self->{Notebook}->AddPage($panel,$labels->[$i]);
 	}	
 
 	$self->{Notebook}->Layout;
@@ -481,7 +488,6 @@ sub SaveDialog {
 	my ($self,$event) = @_;
 	my $saveframe = Wx::Frame->new(undef,-1,"Save Color Preferences");
 	my $savepanel = Wx::Panel->new($saveframe,-1);
-	$savepanel->SetBackgroundColour($blue);
 	my $framesizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $textsizer = Wx::BoxSizer->new(wxHORIZONTAL);
@@ -494,7 +500,7 @@ sub SaveDialog {
 	$framesizer->Add($textsizer,2,wxCENTER);
 	$framesizer->Add($enter,1,wxCENTER);
 	
-	EVT_BUTTON($saveframe,$enter,sub{$self->SaveColors($savepanel,$text->GetValue)});
+	EVT_BUTTON($savepanel,$enter,sub{$self->SaveColors($saveframe,$text->GetValue)});
 	$savepanel->SetSizer($framesizer);
 	$saveframe->Layout;
 	$saveframe->Show;
@@ -502,16 +508,15 @@ sub SaveDialog {
 
 sub SaveColors {
 	my ($self,$saveframe,$save_name) = @_;
+	chdir($self->{Control}->{ColorPrefs});
 	dbmopen(my %COLOR,$save_name,0644) or die "Cannot create $save_name: $!";
-	if ($self->{Sync} == 1) {
-		for (my $i=0; $i<$piecount; $i++) {
-			my $pie = $self->{Notebook}->GetPage($i);
-			for my $name(keys(%{$pie->{Brushes}})) {
-				my $red = $pie->{Brushes}{$name}->GetColour()->Red;
-				my $green = $pie->{Brushes}{$name}->GetColour()->Green;
-				my $blue = $pie->{Brushes}{$name}->GetColour()->Blue;
-				$COLOR{$name} = "$red;$green;$blue";
-			}
+	for (my $i=0; $i<$self->{Notebook}->GetPageCount; $i++) {
+		my $pie = $self->{Notebook}->GetPage($i);
+		for my $name(keys(%{$pie->{Brushes}})) {
+			my $red = $pie->{Brushes}{$name}->GetColour()->Red;
+			my $green = $pie->{Brushes}{$name}->GetColour()->Green;
+			my $blue = $pie->{Brushes}{$name}->GetColour()->Blue;
+			$COLOR{$name} = "$red;$green;$blue";
 		}
 	}
 	$saveframe->Destroy;
@@ -521,7 +526,6 @@ sub LoadDialog {
 	my ($self,$event) = @_;
 	my $loadframe = Wx::Frame->new(undef,-1,"Load Color Preferences");
 	my $loadpanel = Wx::Panel->new($loadframe,-1);
-	$loadpanel->SetBackgroundColour($blue);
 	my $framesizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $textsizer = Wx::BoxSizer->new(wxHORIZONTAL);
@@ -530,7 +534,7 @@ sub LoadDialog {
 	$textsizer->Add($label,1,wxLEFT|wxCENTER|wxRIGHT,10);
 	$textsizer->Add($text,3,wxLEFT|wxCENTER|wxRIGHT,10);
 	
-	opendir(DIR,$ColorPrefs);
+	opendir(DIR,$self->{Control}->{ColorPrefs});
 	my @files = readdir(DIR);
 	for my $file(@files) {
 		if ($file =~ /.db/g) {
@@ -543,7 +547,7 @@ sub LoadDialog {
 	$framesizer->Add($textsizer,2,wxCENTER);
 	$framesizer->Add($enter,1,wxCENTER);
 	
-	EVT_BUTTON($loadpanel,$enter,sub{$self->LoadColors($loadpanel,$text->GetString($text->GetSelection))});
+	EVT_BUTTON($loadpanel,$enter,sub{$self->LoadColors($loadframe,$text->GetString($text->GetSelection))});
 	$loadpanel->SetSizer($framesizer);
 	$loadframe->Layout;
 	$loadframe->Show;
@@ -552,15 +556,15 @@ sub LoadDialog {
 sub LoadColors {
 	my ($self,$loadframe,$loadname) = @_;
 	$loadname =~s/.db//g;
-	chdir($ColorPrefs);
+	chdir($self->{Control}->{ColorPrefs});
 	dbmopen(my %COLOR,$loadname,0644) or die "Cannot open color_pref: $!";
 	%colors = ();
 	for my $key(keys(%COLOR)) {
-		my @color = split(/;/,$COLOR{$key});
-		$colors{$key} = \@color;
+		my @color_array = split(/;/,$COLOR{$key});
+		$colors{$key} = \@color_array;
 	}
 	$self->{Sync} = 1;
-	for (my $i=0; $i<$piecount; $i++) {
+	for (my $i=0; $i<$self->{Notebook}->GetPageCount; $i++) {
 		my $pie = $self->{Notebook}->GetPage($i);
 		$pie->SetBrushesSync(\%colors);
 		$pie->OnSize(0);
