@@ -1,11 +1,10 @@
 use strict;
-use IOManager;
-
-my $io = IOManager->new();
 
 package Parser;
 
 package FASTAParser;
+use Bio::SearchIO;
+use Bio::SeqIO;
 
 package BlastParser;
 use Bio::SearchIO;
@@ -14,18 +13,21 @@ use XML::Simple;
 
 sub new {
      
-     my ($class,$name) = @_;
+     my ($class,$name,$control) = @_;
      
      my $self = {
      	BlastFile => undef,
      	FastaFile =>  undef,
      	In => undef,
      	FastaMemory => undef,
-     	Parameters => undef,
      	HasTaxonomy => 0,
      	Name => $name,
-     	DoneParsing => 0
+     	DoneParsing => 0,
+     	Bit =>40.0,
+     	Evalue => .001
 	 };
+	 $self->{InternalDirectory} = $control->{Results} . $control->{PathSeparator} . $self->{Name};
+	 mkdir($self->{InternalDirectory});
 	 $self->{Processes} = ();
      bless($self,$class);
      return $self;
@@ -72,10 +74,18 @@ sub SetFastaFile {
 	}
 }
 
+sub SetParameters {
+	my ($self,$bit,$evalue) = @_;
+	# check if values are numbers if ()
+	$self->{Bit} = $bit;
+	$self->{Evalue} = $evalue;
+}
+
 sub AddProcess {
 	my ($self,$process) = @_;
 	push(@{$self->{Processes}},$process);
 }
+
 
 sub HitName {
 	my ($self,$description) = @_;
@@ -119,7 +129,7 @@ sub NoHits {
 	
 	my $sequence = $self->{FastaMemory}{$query_name};
 	
-	chdir($io->{Directory});
+	chdir($self->{InternalDirectory});
 	open(NOHITSFASTA, '>>' . "NoHits.pact.fasta");
 	
 	print NOHITSFASTA ">" . $query_name . "\n";
@@ -137,27 +147,37 @@ sub Parse {
 
 		if (my $firsthit = $result->next_hit) {
 			my $firsthsp = $firsthit->next_hsp;
+			
+			## Check threshold parameters.
+			if ($firsthsp->evalue > $self->{Evalue}) {
+				next;
+			}
+			
+			if ($firsthsp->bits < $self->{Bit}) {
+				next;
+			}
+			
 			my $hitdata = $self->HitData($result,$firsthit,$firsthsp);
 			for my $process(@{$self->{Processes}}) {
 				$process->HitRoutine($hitdata);
 			}
 		}
 		else {
-			#$self->NoHits($result->query_name);
+			$self->NoHits($result->query_name);
 		}
 		
 	}
 	
 	for my $process(@{$self->{Processes}}) {
-				$process->EndRoutine();
+		$process->EndRoutine();
 	}
 	for my $process(@{$self->{Processes}}) {
-				$process->SaveRoutine($self->{Name});
+		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
 	}
 	
 }
 
-# Base class of working with table data. Not to be confused with SendTable.
+# Base class of working with table data. Not to be confused with SendTable. To be moved to separate file.
 package Table;
 use DBI;
 
@@ -188,10 +208,11 @@ package Process;
 
 sub new {
      
-     my ($class) = @_;
+     my ($class,$control) = @_;
      
      my $self = {
-     	Data => undef
+     	Data => undef,
+     	Control => $control
 	 };
      
      bless($self,$class);
@@ -211,22 +232,18 @@ sub EndRoutine {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
 }
 
 package TextPrinter;
 use base ("Process");
-use IOManager;
 
 sub new {
-	 my ($class,$dir) = @_;
+	 my ($class,$dir,$control) = @_;
+     my $self = $class->SUPER::new($control);
      
-     my $self = {
-     	OutputDirectory => $dir, # Parent directory in which local output directory will be printed.
-	 };
-     
+     $self->{OutputDirectory} = $dir; # Parent directory in which local output directory will be printed.
      $self->{Processes} = ();
-     $self->{IO} = IOManager->new();
      bless($self,$class);
      return $self;
 }
@@ -245,7 +262,7 @@ sub PrintHitFileHeader {
 	my ($self,$dir,$hitname,$num_queries) = @_;
 	
 	chdir($dir);
-	open(HITFILE, '>>' . $self->{IO}->ReadyForFile($hitname) . ".pact.txt");
+	open(HITFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".pact.txt");
 	print HITFILE $hitname . "\n",
 			"Total Number of Queries per Hit: " . $num_queries . "\n" . "\n";
 	
@@ -277,8 +294,8 @@ sub HitRoutine {
 
 sub PrintHit {
 	my ($self,$parent,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence) = @_;
-	my $dir = $parent . $self->{IO}->{path_separator} . $self->{IO}->ReadyForFile($hitname);
-	mkdir($dir);
+	my $dir = $parent . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
+	mkdir ($dir);
 	# Header?
 	$self->PrintHitFile($dir,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq);
 	$self->PrintFasta($dir,$hitname,$query,$sequence);
@@ -289,7 +306,7 @@ sub PrintHitFile {
 	my ($self,$dir,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq) = @_;
 	
 	chdir($dir);
-	open(HITFILE, '>>' . $self->{IO}->ReadyForFile($hitname) . ".pact.txt");
+	open(HITFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".pact.txt");
 		
 	print HITFILE $query . "\n",
 	"Query Length: " . $qlength . "\n",
@@ -310,7 +327,7 @@ sub PrintFasta {
 	my ($self,$dir,$hitname,$query_name,$sequence) = @_;
 	
 	chdir($dir);
-	open(FASTAFILE, '>>' . $self->{IO}->ReadyForFile($hitname) . ".pact.fasta");
+	open(FASTAFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".pact.fasta");
 	
 	print FASTAFILE ">" . $query_name . "\n";
   	print FASTAFILE $sequence . "\n";
@@ -333,9 +350,9 @@ sub EndRoutine {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
 	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($parser_name);
+		$process->SaveRoutine($parser_name,$parser_directory);
 	}
 }
 
@@ -351,8 +368,8 @@ package FlagItems;
 use base ("TextPrinter");
 
 sub new {
-	my ($class,$dir,$flag_file) = @_;
-	my $self = $class->SUPER::new($dir);
+	my ($class,$dir,$flag_file,$control) = @_;
+	my $self = $class->SUPER::new($dir,$control);
 	$self->Generate($flag_file);
 	return $self;
 }
@@ -365,7 +382,7 @@ sub Generate {
 	chomp $flagtitle;
 	$self->{Title} = $flagtitle;
 	
-	$self->{FlagDir} = $self->{OutputDirectory} . $self->{IO}->{path_separator} . $flagtitle;
+	$self->{FlagDir} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . $flagtitle;
 	mkdir($self->{FlagDir});
 	
     while (<FLAG>) {
@@ -405,10 +422,10 @@ use File::Path;
 use base ("TextPrinter");
 
 sub new {
-	my ($class,$dir,$taxonomy) = @_;
-	my $self = $class->SUPER::new($dir);
+	my ($class,$dir,$taxonomy,$control) = @_;
+	my $self = $class->SUPER::new($dir,$control);
 	$self->{Taxonomy} = $taxonomy;
-	$self->{UnclassifiedDir} = $self->{OutputDirectory} . $self->{IO}->{path_separator} . "Unclassified";
+	$self->{UnclassifiedDir} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "Unclassified";
 	mkdir($self->{UnclassifiedDir});
 	$self->{NameToPath} = ();
 	bless($self,$class);
@@ -434,7 +451,7 @@ sub PrintHit {
 sub PrintNotFound {
 	my ($self,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$sequence) = @_;
 	chdir($self->{UnclassifiedDir});
-	my $output = $self->{UnclassifiedDir} . $self->{IO}->{path_separator} . $self->{IO}->ReadyForFile($hitname);
+	my $output = $self->{UnclassifiedDir} . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
 	mkdir($output);
 	$self->PrintHitFile($output,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq);
 	$self->PrintFasta($output,$hitname,$query,$sequence);
@@ -446,7 +463,7 @@ sub PrintFound {
 	chdir($self->{OutputDirectory});
 	my $dir = "";
 	for my $name(@$path_names) {
-		$dir = $self->{IO}->ReadyForFile($name) . $self->{IO}->{path_separator} . $dir;
+		$dir = $self->{Control}->ReadyForFile($name) . $self->{Control}->{PathSeparator} . $dir;
 	}
 	mkpath($dir);
 	$self->PrintHitFile($dir,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq);
@@ -455,11 +472,11 @@ sub PrintFound {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($parser_name);
 	}
-	$self->{Taxonomy}->SaveRoutine($parser_name);
+	$self->{Taxonomy}->SaveRoutine($parser_name,$parser_directory);
 }
 
 sub PrintSummaryTexts {
@@ -477,9 +494,9 @@ use XML::Writer;
 use base ("Process");
 
 sub new {
-	my ($class) = @_;
+	my ($class,$control) = @_;
      
-    my $self = $class->SUPER::new();
+    my $self = $class->SUPER::new($control);
 	$self->{TaxonomyDB} = undef;
 	$self->{Data} = (); # Data is hit id to value.
 	$self->{SpeciesToAncestor} = (); # hash of species id to ancestor id.
@@ -600,7 +617,7 @@ sub GetTrees {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
 	
 	sub RecursiveTraversal {
 		my ($root,$writer) = @_;
@@ -612,15 +629,13 @@ sub SaveRoutine {
 		}
 	}
 	
-	my $tax_dir = $io->{TaxonomyDirectory} . $io->{path_separator} . $parser_name;
-	mkdir($tax_dir);
-	chdir($tax_dir);
+	chdir($parser_directory);
 	
 	my $trees = $self->GetTrees();
 	
 	for my $tree (@$trees) {
 		my $root = $tree->get_root_node();
-		my $output = new IO::File(">" . $root->node_name . ".xml");
+		my $output = new IO::File(">" . $root->node_name . ".pact.taxonomy.xml");
 		my $writer = new XML::Writer(OUTPUT => $output);
 		$writer->startTag("root","rank"=>$root->rank,"taxonid"=>$root->id,"name"=>$root->node_name,"seqid"=>0 ,"value"=>$self->{Data}{$root->id});
 		RecursiveTraversal($root,$writer);
@@ -628,7 +643,7 @@ sub SaveRoutine {
 		$writer->end();
 		$output->close();
 	}
-	chdir($io->{Directory});
+	chdir($self->{Control}->{CurrentDirectory});
 }
 
 ## add file format as parameter. Save trees in individual files.
@@ -684,8 +699,8 @@ package FlatFileTaxonomy;
 use base ("Taxonomy");
 
 sub new {
-	my ($class,$nodesfile,$namesfile,$ranks,$roots) = @_;
-	my $self = $class->SUPER::new();
+	my ($class,$nodesfile,$namesfile,$ranks,$roots,$control) = @_;
+	my $self = $class->SUPER::new($control);
 	$self->SetSearchFilters($ranks,$roots);
 	$self->{TaxonomyDB} = Bio::DB::Taxonomy->new(-source => 'flatfile',-nodesfile => $nodesfile, -namesfile => $namesfile);
 	bless($self,$class);
@@ -701,8 +716,8 @@ package ConnectionTaxonomy;
 use base ("Taxonomy");
 
 sub new {
-	my ($class,$ranks,$roots) = @_;
-	my $self = $class->SUPER::new();
+	my ($class,$ranks,$roots,$control) = @_;
+	my $self = $class->SUPER::new($control);
 	$self->SetSearchFilters($ranks,$roots);
 	$self->{TaxonomyDB} = Bio::DB::Taxonomy->new(-source => 'entrez');
 	bless($self,$class);
@@ -719,9 +734,10 @@ package Classification;
 use base ("Process");
 
 sub new {
-	my ($class,$file_name) = @_;
-	my $self = $class->SUPER::new();
+	my ($class,$file_name,$control) = @_;
+	my $self = $class->SUPER::new($control);
 	$self->Generate($file_name);
+	bless($self,$class);
 	return $self;
 }
 
@@ -748,7 +764,6 @@ sub Generate {
 			$self->{Data}{$current_item} = 0;
 		}
 	}
-	
 	close CLASS;
 }
 
@@ -801,7 +816,29 @@ sub PrintSummaryText {
 
 
 sub SaveRoutine {
-	my ($self,$parser_name) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
+
+	chdir($parser_directory);
+
+	my $output = new IO::File(">" . $self->{Title} . ".pact.classification.xml");
+	my $writer = new XML::Writer(OUTPUT => $output);
+	$writer->startTag("root","Title"=>$self->{Title});
+	my %parents_hash = reverse %{$self->{ItemToParent}};
+	for my $parent(keys(%parents_hash)) {
+		$writer->startTag("classifier","name"=>$parent,"value"=>$self->{Data}{$parent});
+		my @items = map {$_} grep {$self->{ItemToParent}{$_} eq $parent} keys(%{$self->{ItemToParent}});
+		for my $item(@items) {
+			$writer->startTag("item","name"=>$item,"value"=>$self->{Data}{$item});
+			$writer->endTag("item");
+		}
+		$writer->endTag("classifier");
+	}
+	
+	$writer->endTag("root");
+	$writer->end();
+	$output->close();
+		
+	chdir($self->{Control}->{CurrentDirectory});
 }
 
 
@@ -811,17 +848,17 @@ use base ("Process");
 
 sub new {
      
-     my ($class,$name) = @_;
+     my ($class,$parser_name,$parser_directory,$control) = @_;
      
-     my $self = {
-     	Connection => undef,
-     	DatabaseName => $name,
-     	QueryTable => $name,
-     	HitTable => $name . "Hits"
-	 };
-	 chdir($io->{SQLiteDatabaseDirectory});
+     my $self = $class->SUPER::new($control);
+     
+     $self->{DatabaseName} = $parser_name;
+	 $self->{QueryTable} = $parser_name;
+	 $self->{HitTable} = $parser_name . "Hits";
+
+	 chdir($parser_directory);
 	 $self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Couldn't open database");
-	 chdir($io->{Directory});
+	 chdir($self->{Control}->{CurrentDirectory});
 	 # 13 total fields
 	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{QueryTable} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
      $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{HitTable} .  "(hitname TEXT,gi INTEGER,query TEXT,rank INTEGER,description TEXT,percent REAL,bit REAL,
@@ -916,6 +953,95 @@ sub ByUniqueHit {
 	}
 }
 
+package ClassificationXML;
+use XML::Simple;
+
+sub new {
+	my ($class,$file_name) = @_;
+	my $self = {
+	};
+	$self->{XML} = new XML::Simple;
+	$self->{ClassificationHash} = $self->{XML}->XMLin($file_name);
+	bless ($self,$class);
+	return $self;
+}
+
+sub GetClassifiers {
+	my ($self) = @_;
+	my @classifier_list = ();
+	my $classifiers =  $self->{ClassificationHash}->{"classifier"};
+	# case of only one classifier
+	if (defined $classifiers->{"item"}) {
+		push(@classifier_list,$classifiers->{"name"});
+	}
+	else {
+		for my $key (keys(%{$classifiers})) {
+			push(@classifier_list,$key);
+		}
+	}
+	return \@classifier_list;
+}
+
+sub PieClassifierData {
+	my ($self,$input_class) = @_;
+	my $piedata = {"Names"=>[],"Values"=>[],"Total"=>0};
+	my $classifiers =  $self->{ClassificationHash}->{"classifier"};
+	if (defined $classifiers->{"item"}) {
+		for my $item (keys(%{$classifiers->{"item"}})) {
+			my $value = $classifiers->{"item"}->{$item}->{"value"};
+			if ($value == 0) {
+				next;
+			}
+			push(@{$piedata->{Names}},$item);
+			push(@{$piedata->{Values}},$value);
+			$piedata->{Total} += $value;
+		}
+	}
+	else {
+		for my $class (keys(%{$classifiers})) {
+			if ($class eq $input_class) {
+				for my $item(keys(%{$classifiers->{$class}->{"item"}})) {
+					my $value = $classifiers->{$class}->{"item"}->{$item}->{"value"};
+					if ($value == 0) {
+						next;
+					}
+					push(@{$piedata->{Names}},$item);
+					push(@{$piedata->{Values}},$value);
+					$piedata->{Total} += $value;
+				}
+			}
+		}
+	}
+	return $piedata;
+}
+
+sub PieAllClassifiersData {
+	my ($self) = @_;
+	my $piedata = {"Names"=>[],"Values"=>[],"Total"=>0};
+	my $classifiers =  $self->{ClassificationHash}->{"classifier"};
+	if (defined $classifiers->{"item"}) {
+		my $value = $classifiers->{"value"};
+		if ($value == 0) {
+			next;
+		}
+		push(@{$piedata->{Names}},$classifiers->{"name"});
+		push(@{$piedata->{Values}},$value);
+		$piedata->{Total} += $value;
+	}
+	else {
+		for my $class (keys(%{$classifiers})) {
+			my $value = $classifiers->{$class}->{"value"};
+			if ($value == 0) {
+				next;
+			}
+			push(@{$piedata->{Names}},$class);
+			push(@{$piedata->{Values}},$value);
+			$piedata->{Total} += $value;
+		}
+	}
+	return $piedata;
+}
+
 package TaxonomyXML;
 use XML::Simple;
 
@@ -937,87 +1063,121 @@ sub GetXMLHash {
 # node is a hash starting at a node.
 sub PieDataRank {
 	my ($self,$node,$rank) = @_;
-	my %pie_data = ();
-	my @names = ();
-	my @values = ();
-	my $total = 0;
-	
-	sub RecursiveTraversal {
-		my ($rnode,$parent) = @_;
+	$self->{PieData} = {"Names"=>[],"Values"=>[],"Total"=>0};
+	$self->RecursiveTraversal($node,"",$rank);
+	return $self->{PieData};
+}
 
-		if (not defined $rnode->{"taxonid"}) {
-			for my $key(keys(%$rnode)) {
-				RecursiveTraversal($rnode->{$key},$key);
-			}
-		}
-		else {
-			if ($rnode->{"rank"} eq $rank) {
-				my $name;
-				if (not $rnode->{"name"}) {
-					$name = $parent;
-				}
-				else {
-					$name = $rnode->{"name"};
-				}
-				push(@names,$name);
-				push(@values,$rnode->{"value"});
-				$total += $rnode->{"value"};
-			}
-			
-			if (defined $rnode->{"node"}) {
-				RecursiveTraversal($rnode->{"node"},"");
-			}
-			else {
-				return 0;
-			}
+=head1 SYNOPSIS
+Finds the number and value for a given rank.
+=cut
+
+sub RecursiveTraversal {
+	my ($self,$rnode,$parent,$rank) = @_;
+
+	if (not defined $rnode->{"taxonid"}) {
+		for my $key(keys(%$rnode)) {
+			$self->RecursiveTraversal($rnode->{$key},$key,$rank);
 		}
 	}
-
-	RecursiveTraversal($node,"");
-	$pie_data{"Names"} = \@names;
-	$pie_data{"Values"} = \@values;
-	$pie_data{"Total"} = $total;
-	return \%pie_data;
+	else {
+		if ($rnode->{"rank"} eq $rank) {
+			my $name;
+			if (not $rnode->{"name"}) {
+				$name = $parent;
+			}
+			else {
+				$name = $rnode->{"name"};
+			}
+			my $value = $rnode->{"value"};
+			if ($value != 0) {
+				push(@{$self->{PieData}->{Names}},$name);
+				push(@{$self->{PieData}->{Values}},$value);
+				$self->{PieData}->{Total} += $value;	
+			}
+		}
+		
+		if (defined $rnode->{"node"}) {
+			$self->RecursiveTraversal($rnode->{"node"},"",$rank);
+		}
+	}
 }
 
 sub PieDataNode {
 	my ($self,$node_name,$sub_rank) = @_;
-	
-	my $sub_node;
-	
-	sub RecursiveTraversalFindNode {
-		my ($node,$parent) = @_;
-		if (not defined $node->{"taxonid"}) {
-			for my $key(keys(%$node)) {
-				if ($key eq $node_name) {
-					$sub_node = $node->{$key};
-					return 1;
-				}
-				else {
-					RecursiveTraversalFindNode($node->{$key},$key);
-				}
-			}
-		}
-		else {
-			if (defined $node->{"node"}) {
-				if ($node->{"name"} eq $node_name) {
-					$sub_node = $node;
-					return 1;
-				}
-				else {
-					RecursiveTraversalFindNode($node->{"node"},"");
-				}
+	eval {
+		$self->RecursiveTraversalFindNode($self->{TaxonomyHash},$node_name);
+	};
+	if ($@) {
+		return $self->PieDataRank($@,$sub_rank);
+	}
+}
+
+sub RecursiveTraversalFindNode {
+	my ($self,$rnode,$node_name) = @_;
+	if (not defined $rnode->{"taxonid"}) {
+		for my $key(keys(%$rnode)) {
+			if ($key eq $node_name) {
+				die $rnode;
 			}
 			else {
-				return 0;
+				$self->RecursiveTraversalFindNode($rnode->{$key},$node_name);
 			}
 		}
 	}
-	
-	RecursiveTraversalFindNode($self->{TaxonomyHash},"");
-	return $self->PieDataRank($sub_node,$sub_rank);
+	else {
+		
+		if ($rnode->{"name"} eq $node_name) {
+			die $rnode;
+		}
+		elsif (defined $rnode->{"node"}) {
+			$self->RecursiveTraversalFindNode($rnode->{"node"},$node_name);
+		} else {}
+	}
 }
 
+sub RecursiveTraversalFill {
+	my ($self,$node,$nodes,$parent,$levelcount) = @_;
+	if (not defined $node->{"taxonid"}) {
+		for my $key(keys(%$node)) {
+			$self->RecursiveTraversalFill($node->{$key},$nodes,$key,$levelcount);
+		}
+	}
+	else {
+		my $name;
+		if (not $node->{"name"}) {
+			$name = $parent;
+		}
+		else {
+			$name = $node->{"name"};
+		}
+		push(@$nodes,$name);
+		$levelcount++;
+		if (defined $node->{"node"}) {
+			$self->RecursiveTraversalFill($node->{"node"},$nodes,$name,$levelcount);
+		}
+		else {
+			return 0;
+		}
+	}
+}
+
+
+sub GetNodes {
+	my ($self) = @_;
+	
+	my @nodes = ();
+
+	my $levelcount = 0;
+	$self->RecursiveTraversalFill($self->{TaxonomyHash},\@nodes,"",$levelcount);
+	
+	my @alpha = (sort {lc($a) cmp lc($b)} @nodes);
+	return \@alpha;
+}
+
+sub WriteNewick {
+	my ($self) = @_;
+}
 
 
 1;
