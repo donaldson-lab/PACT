@@ -853,15 +853,17 @@ sub new {
      my $self = $class->SUPER::new($control);
      
      $self->{DatabaseName} = $parser_name;
-	 $self->{QueryTable} = $parser_name;
-	 $self->{HitTable} = $parser_name . "Hits";
+	 $self->{QueryInfo} = "QueryInfo";
+	 $self->{AllHits} = "AllHits";
+	 $self->{HitInfo} = "HitInfo";
 
 	 chdir($parser_directory);
-	 $self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Couldn't open database");
+	 $self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Could not open database");
 	 chdir($self->{Control}->{CurrentDirectory});
 	 # 13 total fields
-	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{QueryTable} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
-     $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{HitTable} .  "(hitname TEXT,gi INTEGER,query TEXT,rank INTEGER,description TEXT,percent REAL,bit REAL,
+	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
+	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{AllHits} .  "(query TEXT,rank INTEGER,hitname TEXT)");
+     $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{HitInfo} .  "(hitname TEXT,gi INTEGER,description TEXT,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,hlength INTEGER)");
      bless($self,$class);
      return $self;
@@ -888,10 +890,13 @@ sub HitRoutine {
 	my $hlength = $hitdata->[14];
 	
     
-    $self->{Connection}->do("INSERT INTO " . $self->{QueryTable} . "(query,qlength,sequence) VALUES(?,?,?)",undef,($query,$qlength,$sequence));
-    $self->{Connection}->do("INSERT INTO " . $self->{HitTable} . "(hitname,gi,query,rank,description,percent,bit,evalue,starth,endh,startq,endq,hlength) 
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",undef,($hitname,$gi,$query,$rank,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength));
+    $self->{Connection}->do("INSERT INTO " . $self->{QueryInfo} . "(query,qlength,sequence) VALUES(?,?,?)",undef,($query,$qlength,$sequence));
+    $self->{Connection}->do("INSERT INTO " . $self->{AllHits} . "(query,rank,hitname) VALUES(?,?,?)",undef,($query,$rank,$hitname));
+    $self->{Connection}->do("INSERT INTO " . $self->{HitInfo} . "(hitname,gi,description,percent,bit,evalue,starth,endh,startq,endq,hlength) 
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",undef,($hitname,$gi,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength));
 }
+
+### Note :: Table Design Changed.
 
 package TableOperations;
 use base ("Table");
