@@ -10,24 +10,25 @@ package BlastParser;
 use Bio::SearchIO;
 use Bio::SeqIO;
 use XML::Simple;
+use File::Path;
 
 sub new {
      
-     my ($class,$name,$control) = @_;
+     my ($class,$name,$internal_directory) = @_;
      
      my $self = {
      	BlastFile => undef,
      	FastaFile =>  undef,
+     	InternalDirectory => $internal_directory,
      	In => undef,
      	FastaMemory => undef,
      	HasTaxonomy => 0,
      	Name => $name,
      	DoneParsing => 0,
      	Bit =>40.0,
-     	Evalue => .001
+     	Evalue => .001,
+     	Check => 0
 	 };
-	 $self->{InternalDirectory} = $control->{Results} . $control->{PathSeparator} . $self->{Name};
-	 mkdir($self->{InternalDirectory});
 	 $self->{Processes} = ();
      bless($self,$class);
      return $self;
@@ -490,7 +491,6 @@ sub PrintSummaryTexts {
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
-use XML::Writer;
 use base ("Process");
 
 sub new {
@@ -618,50 +618,37 @@ sub GetTrees {
 
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
-	
-	sub RecursiveTraversal {
-		my ($root,$writer) = @_;
-		my @nodes = $root->each_Descendent;
-		for my $node(@nodes) {
-			$writer->startTag("node","rank"=>$node->rank,"taxonid"=>$node->id,"name"=>$node->node_name,"seqid"=>0 ,"value"=>$self->{Data}{$node->id});
-			RecursiveTraversal($node,$writer);
-			$writer->endTag("node");
-		}
-	}
-	
 	chdir($parser_directory);
-	
 	my $trees = $self->GetTrees();
-	
-	for my $tree (@$trees) {
-		my $root = $tree->get_root_node();
-		my $output = new IO::File(">" . $root->node_name . ".pact.taxonomy.xml");
-		my $writer = new XML::Writer(OUTPUT => $output);
-		$writer->startTag("root","rank"=>$root->rank,"taxonid"=>$root->id,"name"=>$root->node_name,"seqid"=>0 ,"value"=>$self->{Data}{$root->id});
-		RecursiveTraversal($root,$writer);
-		$writer->endTag("root");
-		$writer->end();
-		$output->close();
-	}
+	$self->SaveTrees($trees);
 	chdir($self->{Control}->{CurrentDirectory});
 }
 
 ## add file format as parameter. Save trees in individual files.
 sub SaveTrees {
-	my ($self,$dir,$trees) = @_;
+	my ($self,$trees) = @_;
+	dbmopen(my %NAMES,"NAMES",0644) or die "Cannot open NAMES: $!";
+	dbmopen(my %RANKS,"RANKS",0644) or die "Cannot open RANKS: $!";
+	dbmopen(my %SEQIDS,"SEQIDS",0644) or die "Cannot open SEQIDS: $!";
+	dbmopen(my %VALUES,"VALUES",0644) or die "Cannot open VALUES: $!";
 	for my $tree (@$trees) {
 		my $title = $tree->get_root_node()->node_name;
+		my $tree_key = $self->{Control}->AddTaxonomy($title);
 		for my $node($tree->get_nodes) {
-			my $id = $node->id;
-			my $name = $node->node_name;
-			$node->id($name . ":" . $self->{Data}{$id});
+			$NAMES{$node->id} = $node->node_name;
+			$RANKS{$node->id} = $node->rank;
+			$SEQIDS{$node->id} = 0;
+			$VALUES{$node->id} = $self->{Data}{$node->id};
 		}
-		chdir($dir);
-		open(my $handle, ">>" . $title . ".tre");
+		open(my $handle, ">>" . $tree_key . ".tre");
 		my $out = new Bio::TreeIO(-fh => $handle, -format => 'newick');
 		$out->write_tree($tree);
 		close $handle;
 	}
+	dbmclose(%NAMES);
+	dbmclose(%RANKS);
+	dbmclose(%SEQIDS);
+	dbmclose(%VALUES);
 }
 
 sub PrintSummaryText {
@@ -731,6 +718,7 @@ sub GetSpeciesTaxon {
 
 
 package Classification;
+use XML::Writer;
 use base ("Process");
 
 sub new {
@@ -848,23 +836,26 @@ use base ("Process");
 
 sub new {
      
-     my ($class,$parser_name,$parser_directory,$control) = @_;
+     my ($class,$parser_name,$control) = @_;
      
      my $self = $class->SUPER::new($control);
      
-     $self->{DatabaseName} = $parser_name;
-	 $self->{QueryInfo} = "QueryInfo";
-	 $self->{AllHits} = "AllHits";
-	 $self->{HitInfo} = "HitInfo";
+     $self->{TableName} = $parser_name;
+	 $self->{QueryInfo} = $self->{TableName} . "_QueryInfo";
+	 $self->{AllHits} = $self->{TableName} . "_AllHits";
+	 $self->{HitInfo} = $self->{TableName} . "_HitInfo";
 
-	 chdir($parser_directory);
-	 $self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Could not open database");
 	 chdir($self->{Control}->{CurrentDirectory});
-	 # 13 total fields
-	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
-	 $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{AllHits} .  "(query TEXT,rank INTEGER,hitname TEXT)");
-     $self->{Connection}->do("CREATE TABLE IF NOT EXISTS " . $self->{HitInfo} .  "(hitname TEXT,gi INTEGER,description TEXT,percent REAL,bit REAL,
-	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,hlength INTEGER)");
+	 
+	 $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{QueryInfo});
+	 $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{AllHits});
+     $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{HitInfo});
+	 
+	 
+	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
+	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{AllHits} .  "(query TEXT,rank INTEGER,hitname TEXT,percent REAL,bit REAL,
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER)");
+     $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{HitInfo} .  "(hitname TEXT,gi INTEGER,description TEXT,hlength INTEGER)");
      bless($self,$class);
      return $self;
 
@@ -890,72 +881,11 @@ sub HitRoutine {
 	my $hlength = $hitdata->[14];
 	
     
-    $self->{Connection}->do("INSERT INTO " . $self->{QueryInfo} . "(query,qlength,sequence) VALUES(?,?,?)",undef,($query,$qlength,$sequence));
-    $self->{Connection}->do("INSERT INTO " . $self->{AllHits} . "(query,rank,hitname) VALUES(?,?,?)",undef,($query,$rank,$hitname));
-    $self->{Connection}->do("INSERT INTO " . $self->{HitInfo} . "(hitname,gi,description,percent,bit,evalue,starth,endh,startq,endq,hlength) 
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",undef,($hitname,$gi,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength));
-}
-
-### Note :: Table Design Changed.
-
-package TableOperations;
-use base ("Table");
-
-sub new {
-	my ($class,$connection_name) = @_;
-	my $self = $class->SUPER::new();
-	$self->Connect($connection_name);
-	return $self;
-}
-
-sub GetDistinctHits {
-	my ($self) = @_;
-	my $hits = $self->{Connection}->selectall_arrayref("SELECT DISTINCT hitname FROM " . $self->{HitTable});
-	return $hits;
-}
-
-sub GetHitCount {
-	my ($self,$hitname) = @_;
-	my $count = $self->{Connection}->selectrow_arrayref("SELECT COUNT(hitname) FROM " .
-	$self->{HitTable} . " WHERE hitname=?",undef,$hitname);
-	return $count->[0];
-}
-
-sub GetDistinctHitsCount {
-	my ($self) = @_;
-	my %hit_to_count = ();
-	my $uniques = $self->GetDistinctHits();
-	for my $unique(@$uniques) {
-		$hit_to_count{$unique->[0]} = $self->GetHitCount($unique->[0]);
-	}
-	return \%hit_to_count;
-}
-
-sub GetHitsBitThresh {
-	my ($self,$thresh) = @_;
-	my $rows = $self->{Connection}->selectall_arrayref("SELECT * FROM " .
-	$self->{HitTable} . " WHERE bit>?",undef,$thresh);
-	return $rows;
-}
-
-sub ByUniqueHit {
-	my ($self,$processes) = @_;
-	my $uniques = $self->{Connection}->selectall_arrayref("SELECT * FROM " 
-	. $self->{HitTable} . " GROUP BY hitname"); #could this be a hash?
-	for my $unique(@$uniques) {
-		my $hitname = $unique->[0];
-		my $hrows = $self->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{HitTable} . " WHERE hitname=?",undef,$hitname);
-		 for my $hrow(@$hrows) {
-				my ($hitname,$gi,$query,$rank,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength) = @$hrow;
-				my $qrow = $self->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{QueryTable} . " WHERE query=?",undef,$query)->[0];
-				my $sequence = $qrow->[2];
-				my $qlength = $qrow->[1];
-				my $hitdata = [$query,$qlength,$sequence,$hitname,$gi,$rank,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
-				for my $process(@$processes) {
-					$process->HitRoutine($hitdata);
-				} 
-		 }
-	}
+    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{QueryInfo} . "(query,qlength,sequence) VALUES(?,?,?)",undef,($query,$qlength,$sequence));
+    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{AllHits} . "(query,rank,hitname,percent,bit,evalue,starth,endh,startq,endq) 
+    VALUES(?,?,?,?,?,?,?,?,?,?)",undef,($query,$rank,$hitname,$percid,$bit,$evalue,$starth,$endh,$startq,$endq));
+    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{HitInfo} . "(hitname,gi,description,hlength) 
+    VALUES(?,?,?,?)",undef,($hitname,$gi,$descr,$hlength));
 }
 
 package ClassificationXML;
@@ -1047,141 +977,64 @@ sub PieAllClassifiersData {
 	return $piedata;
 }
 
-package TaxonomyXML;
-use XML::Simple;
+package TaxonomyData;
+use Bio::Tree::Tree;
+use Bio::TreeIO;
 
 sub new {
-	my ($class,$file_name) = @_;
-	my $self = {
-	};
-	$self->{XML} = new XML::Simple;
-	$self->{TaxonomyHash} = $self->{XML}->XMLin($file_name);
+	my ($class,$newick_file,$data_location) = @_;
+	my $self = {};
+	$self->{TreeIO} = new Bio::TreeIO(-file=>$newick_file,-format=>'newick');
+	$self->{Tree} = $self->{TreeIO}->next_tree;
+	$self->{NAMES} = ();
+	$self->{RANKS} = ();
+	$self->{SEQIDS} = ();
+	$self->{VALUES} = ();
 	bless ($self,$class);
+	dbmopen(%{$self->{NAMES}},"NAMES",0644) or die "Cannot open tree data: $!";
+	dbmopen(%{$self->{RANKS}},"RANKS",0644) or die "Cannot open tree data: $!";
+	dbmopen(%{$self->{SEQIDS}},"SEQIDS",0644) or die "Cannot open tree data: $!";
+	dbmopen(%{$self->{VALUES}},"VALUES",0644) or die "Cannot open tree data: $!";
 	return $self;
 }
 
-sub GetXMLHash {
-	my $self = shift;
-	return $self->{TaxonomyHash};
-}
-
-# node is a hash starting at a node.
-sub PieDataRank {
-	my ($self,$node,$rank) = @_;
-	$self->{PieData} = {"Names"=>[],"Values"=>[],"Total"=>0};
-	$self->RecursiveTraversal($node,"",$rank);
-	return $self->{PieData};
-}
-
-=head1 SYNOPSIS
-Finds the number and value for a given rank.
-=cut
-
-sub RecursiveTraversal {
-	my ($self,$rnode,$parent,$rank) = @_;
-
-	if (not defined $rnode->{"taxonid"}) {
-		for my $key(keys(%$rnode)) {
-			$self->RecursiveTraversal($rnode->{$key},$key,$rank);
-		}
-	}
-	else {
-		if ($rnode->{"rank"} eq $rank) {
-			my $name;
-			if (not $rnode->{"name"}) {
-				$name = $parent;
-			}
-			else {
-				$name = $rnode->{"name"};
-			}
-			my $value = $rnode->{"value"};
-			if ($value != 0) {
-				push(@{$self->{PieData}->{Names}},$name);
-				push(@{$self->{PieData}->{Values}},$value);
-				$self->{PieData}->{Total} += $value;	
-			}
-		}
-		
-		if (defined $rnode->{"node"}) {
-			$self->RecursiveTraversal($rnode->{"node"},"",$rank);
-		}
-	}
-}
 
 sub PieDataNode {
-	my ($self,$node_name,$sub_rank) = @_;
-	eval {
-		$self->RecursiveTraversalFindNode($self->{TaxonomyHash},$node_name);
-	};
-	if ($@) {
-		return $self->PieDataRank($@,$sub_rank);
-	}
+	my ($self,$sub_node_name,$rank) = @_;
+	my $sub_node = $self->FindNode($sub_node_name);
+	return $self->PieDataRank($sub_node,$rank);
 }
 
-sub RecursiveTraversalFindNode {
-	my ($self,$rnode,$node_name) = @_;
-	if (not defined $rnode->{"taxonid"}) {
-		for my $key(keys(%$rnode)) {
-			if ($key eq $node_name) {
-				die $rnode;
-			}
-			else {
-				$self->RecursiveTraversalFindNode($rnode->{$key},$node_name);
-			}
+sub PieDataRank {
+	my ($self,$sub_node,$rank) = @_;
+	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
+	for my $sub_sub_node(@{$self->{$sub_node->get_all_Descendents}}) {
+		if ($self->{RANKS}{$sub_sub_node->id} eq $rank) {
+			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
+			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
+			$pie_data{"Total"} += $self->{VALUES}{$sub_sub_node->id};
 		}
 	}
-	else {
-		
-		if ($rnode->{"name"} eq $node_name) {
-			die $rnode;
-		}
-		elsif (defined $rnode->{"node"}) {
-			$self->RecursiveTraversalFindNode($rnode->{"node"},$node_name);
-		} else {}
-	}
+	return \%pie_data;
 }
 
-sub RecursiveTraversalFill {
-	my ($self,$node,$nodes,$parent,$levelcount) = @_;
-	if (not defined $node->{"taxonid"}) {
-		for my $key(keys(%$node)) {
-			$self->RecursiveTraversalFill($node->{$key},$nodes,$key,$levelcount);
-		}
-	}
-	else {
-		my $name;
-		if (not $node->{"name"}) {
-			$name = $parent;
-		}
-		else {
-			$name = $node->{"name"};
-		}
-		push(@$nodes,$name);
-		$levelcount++;
-		if (defined $node->{"node"}) {
-			$self->RecursiveTraversalFill($node->{"node"},$nodes,$name,$levelcount);
-		}
-		else {
-			return 0;
+sub FindNode {
+	my ($self,$sub_node_name) = @_;
+	for my $node(@{$self->{Tree}->get_nodes}) {
+		if ($self->{NAMES}{$node->id} eq $sub_node_name) {
+			return $node;
 		}
 	}
 }
 
-
-sub GetNodes {
+sub GetNodesAlphabetically {
 	my ($self) = @_;
-	
-	my @nodes = ();
-
-	my $levelcount = 0;
-	$self->RecursiveTraversalFill($self->{TaxonomyHash},\@nodes,"",$levelcount);
-	
-	my @alpha = (sort {lc($a) cmp lc($b)} @nodes);
+	my @node_names = ();
+	for my $node(@{$self->{Tree}->get_nodes}) {
+		push(@node_names,$self->{NAMES}{$node->id});
+	}
+	my @alpha = (sort {lc($a) cmp lc($b)} @node_names);
 	return \@alpha;
-}
-
-sub WriteNewick {
-	my ($self) = @_;
 }
 
 
