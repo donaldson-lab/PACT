@@ -1,3 +1,4 @@
+use Wx::Perl::Packager;
 use Wx;
 
 my $turq = Wx::Colour->new("TURQUOISE");
@@ -36,9 +37,12 @@ sub new {
 	$self->{Brushes} = undef;
 	$self->{Title} = $title;
 	$self->{TitleDimensions} = undef;
+	$self->{LegendLocations} = ();
+	
 	$self->TruncateData();
 	EVT_PAINT($self,\&OnPaint);
 	EVT_SIZE($self,\&OnSize);
+	EVT_LEFT_DCLICK($self,\&GetCoordinates);
 	EVT_MOTION($self,sub{$self->ResizeNumbers($_[0],$_[1])});
 	bless $self,$class;
 	return $self;
@@ -87,6 +91,29 @@ sub GetCoordinates {
 	my ($self,$event) = @_;
 	my $x = $event->GetPosition()->x;
 	my $y = $event->GetPosition()->y;
+	for (my $i=0; $i<keys(%{$self->{LegendLocations}}); $i++) {
+		my $lx = $self->{LegendLocations}{$i}->[0];
+		my $ly = $self->{LegendLocations}{$i}->[1];
+		my $lwidth = $self->{LegendLocations}{$i}->[2];
+		my $lheight = $self->{LegendLocations}{$i}->[3];
+		if ($x >= $lx and $x <= $lx + $lwidth and $y >= $ly and $y <= $ly + $lheight) {
+			my $label = $self->{Data}->{Names}->[$i];
+			my $label_dialog = Wx::TextEntryDialog->new($self,"New Label","Enter New Legend Label:",$label);
+			if ($label_dialog->ShowModal == wxID_OK) {
+				$self->ProcessNewLegend($label_dialog->GetValue,$i);
+			}
+			$label_dialog->Destroy;
+			return 1;
+		}
+	}
+}
+
+sub ProcessNewLegend {
+	my ($self,$new_label,$index) = @_;
+	my @new_label_array = ($new_label);
+	$self->{Brushes}{$new_label} = $self->{Brushes}{$self->{Data}->{Names}->[$index]};
+	splice(@{$self->{Data}->{Names}},$index,1,@new_label_array);
+	$self->OnSize(0);
 }
 
 sub OnPaint {
@@ -106,9 +133,6 @@ sub OnSize {
 	$memory->SelectObject($self->{Bitmap});
 	if ($self->{Data}->{Total} != 0){
 		$self->Draw($memory);
-	}
-	else {
-		$self->OnPaint(0);
 	}
 }
 
@@ -151,7 +175,6 @@ sub SetBrushes {
 
 sub SetBrushesSync {
 	my ($self,$colors) = @_;
-	$self->{Brushes} = ();
 	for $name(keys(%{$colors})) {
 		my $color = $colors->{$name};
 		$self->{Brushes}{$name} = Wx::Brush->new(Wx::Colour->new($color->[0],$color->[1],$color->[2]),wxSOLID);
@@ -165,7 +188,7 @@ sub ResizeNumbers {
 	my $y = $event->GetPosition()->y;
 	my $width = $panel->GetRect()->width();
 	my $height = $panel->GetRect()->height();
-	my $legend_y = 4/5*$height;
+	my $legend_y = 4/5*$height; #this needs to be global
 	my $center_x = $width/2;
 	my $center_y = $legend_y/2;
 	if ($event->Dragging and $y<$legend_y) {
@@ -194,19 +217,12 @@ sub Legend {
 
 sub Title {
 	my ($self,$event) = @_;
-	my $size = $self->GetClientSize();
-	my $width = $size->GetWidth();
-	my $height = $size->GetHeight();
-	my $title_ctrl = Wx::TextCtrl->new($self,-1,"Title",Wx::Point->new($width/2 - 50,0),Wx::Size->new(100,20),wxTE_PROCESS_ENTER);
-	EVT_TEXT_ENTER($self,$title_ctrl,sub{$self->ProcessTitle($title_ctrl)});
-}
-
-sub ProcessTitle {
-	my ($self,$title_ctrl) = @_;
-	my $title = $title_ctrl->GetValue;
-	$self->{Title} = $title;
-	$title_ctrl->Destroy;
-	$self->OnSize(0);
+	my $title_dialog = Wx::TextEntryDialog->new($self,"Pie Chart Title","Enter Title");
+	if ($title_dialog->ShowModal == wxID_OK) {
+		$self->{Title} = $title_dialog->GetValue;
+		$self->OnSize(0);
+	}
+	$title_dialog->Destroy;
 }
 
 sub Draw {
@@ -273,15 +289,6 @@ sub Draw {
 
 		# Draws the label on the legend.
 		$self->DrawLegendItem($dc,$legend_width,$legend_height,$legend_x,$legend_y,\@labels,$count);
-		
-		if ($labels[$count] =~ /\*/) {
-				$has_keyword = 1;
-		}
-	}
-	if ($self->{Legend}==1 and $has_keyword == 1) {
-		my $font = Wx::Font->new(10,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
-		$dc->SetFont($font);
-		$dc->DrawText("(*) Designates a keyword",1/25*$legend_width,$legend_y + 1/32*$legend_height);
 	}
 	
 	# Draw title, if one is specified.
@@ -324,6 +331,7 @@ sub DrawLegendItem {
 		my $label_height = 1/8*$legend_height;
 		
 		$dc->DrawRectangle($label_x,$label_y,$label_width,$label_height);
+		$self->{LegendLocations}{$count} = [$label_x,$label_y,$label_width,$label_height];
 		my $font = Wx::Font->new(12,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
 		$dc->SetFont($font);
 		my @string_data = $dc->GetTextExtent($labels->[$count],undef); # Get text height to center.
@@ -486,28 +494,15 @@ sub TopMenu {
 
 sub SaveDialog {
 	my ($self,$event) = @_;
-	my $saveframe = Wx::Frame->new(undef,-1,"Save Color Preferences");
-	my $savepanel = Wx::Panel->new($saveframe,-1);
-	my $framesizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $textsizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $label = Wx::StaticText->new($savepanel,-1,"Name:");
-	my $text = Wx::TextCtrl->new($savepanel,-1,"");
-	$textsizer->Add($label,1,wxLEFT|wxCENTER|wxRIGHT,10);
-	$textsizer->Add($text,1,wxLEFT|wxCENTER|wxRIGHT,10);
-	
-	my $enter = Wx::Button->new($savepanel,-1,"Enter");
-	$framesizer->Add($textsizer,2,wxCENTER);
-	$framesizer->Add($enter,1,wxCENTER);
-	
-	EVT_BUTTON($savepanel,$enter,sub{$self->SaveColors($saveframe,$text->GetValue)});
-	$savepanel->SetSizer($framesizer);
-	$saveframe->Layout;
-	$saveframe->Show;
+	my $save_dialog = Wx::TextEntryDialog->new($self,"Enter Name","Save Color Preferences");
+	if ($save_dialog->ShowModal == wxID_OK) {
+		$self->SaveColors($save_dialog->GetValue);
+	}
+	$save_dialog->Destroy;
 }
 
 sub SaveColors {
-	my ($self,$saveframe,$save_name) = @_;
+	my ($self,$save_name) = @_;
 	chdir($self->{Control}->{ColorPrefs});
 	dbmopen(my %COLOR,$save_name,0644) or die "Cannot create $save_name: $!";
 	for (my $i=0; $i<$self->{Notebook}->GetPageCount; $i++) {
@@ -519,7 +514,6 @@ sub SaveColors {
 			$COLOR{$name} = "$red;$green;$blue";
 		}
 	}
-	$saveframe->Destroy;
 }
 
 sub LoadDialog {
