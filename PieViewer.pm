@@ -258,6 +258,10 @@ sub Draw {
 		$dc->SetPen(wxLIGHT_GREY_PEN);
 	}
 	
+	# Set font for text 
+	my $font = Wx::Font->new(14,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
+	$dc->SetFont($font);
+	
 	$dc->DrawRectangle(0,0,$width,$height);
 	
 	my $radius = $width;
@@ -332,8 +336,6 @@ sub DrawLegendItem {
 		
 		$dc->DrawRectangle($label_x,$label_y,$label_width,$label_height);
 		$self->{LegendLocations}{$count} = [$label_x,$label_y,$label_width,$label_height];
-		my $font = Wx::Font->new(12,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
-		$dc->SetFont($font);
 		my @string_data = $dc->GetTextExtent($labels->[$count],undef); # Get text height to center.
 		my $h = $string_data[1];
 		$dc->DrawText($labels->[$count],$label_x + (26/25)*$label_width,$label_y - (1/2)*($h-$label_height));
