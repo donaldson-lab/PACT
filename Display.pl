@@ -1,6 +1,5 @@
 #!/usr/bin/perl
 use strict;
-use Wx::Perl::Packager;
 use Wx;
 use Parser;
 use PieViewer;
@@ -280,15 +279,32 @@ sub new {
 sub TreeBox {
 	my ($self) = @_;
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $sizer_tax = Wx::BoxSizer->new(wxVERTICAL);
+
+	my $tax_center_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $tax_center_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $tax_label = Wx::StaticBox->new($self,-1,"Choose a Taxonomy Result");
+	my $tax_label_sizer = Wx::StaticBoxSizer->new($tax_label,wxVERTICAL);
+	$tax_label_sizer->Add($self->{TreeListBox}->{ListBox},1,wxCENTER|wxEXPAND);
+	$tax_center_h->Add($tax_label_sizer,1,wxCENTER|wxEXPAND);
+	$tax_center_v->Add($tax_center_h,1,wxCENTER|wxEXPAND);
+
+	my $title_sizer = Wx::BoxSizer->new(wxHORIZONTAL);	
+	my $title_label = Wx::StaticBox->new($self,-1,"Title");
+	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
+	my $title_ctrl = Wx::TextCtrl->new($self,-1,"");
+	$title_label_sizer->Add($title_ctrl,1,wxCENTER);
+	$title_sizer->Add(Wx::BoxSizer->new(wxHORIZONTAL),1,wxLEFT);
+	$title_sizer->Add($title_label_sizer,3,wxCENTER|wxEXPAND);
+	$title_sizer->Add(Wx::BoxSizer->new(wxHORIZONTAL),1,wxRIGHT);
+	
 	my $g_button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	my $g_button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $g_button = Wx::Button->new($self,-1,"Generate");
+	my $g_button = Wx::Button->new($self,-1,"Generate");	
 	$g_button_sizer_v->Add($g_button,1,wxCENTER);
 	$g_button_sizer_h->Add($g_button_sizer_v,1,wxCENTER);
-	
-	$sizer_tax->Add($self->{TreeListBox}->{ListBox},1,wxCENTER);
-	$sizer->Add($sizer_tax,7,wxEXPAND);
+
+	$sizer->Add($tax_center_v,7,wxEXPAND|wxLEFT|wxRIGHT,10);
+	$sizer->Add($title_sizer,2,wxCENTER|wxEXPAND);
 	$sizer->Add($g_button_sizer_h,1,wxEXPAND);
 	$self->SetSizer($sizer);
 	
