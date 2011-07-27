@@ -29,6 +29,18 @@ sub new {
 	return $self;
 }
 
+sub SetTaxDump {
+	my ($self) = @_;
+	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
+	mkdir($self->{TaxDump});
+	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
+	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
+}
+
+sub DownloadNCBITaxonomies {
+	my $self = shift;
+}
+
 sub MakeResultsFolder {
 	my $self = shift;
 	$self->{Results} = $self->{CurrentDirectory} . $self->{PathSeparator} . "Results";
@@ -47,11 +59,13 @@ sub CreateResultFolder {
 
 sub ParserNames {
 	my ($self) = @_;
+	chdir($self->{CurrentDirectory});
 	dbmopen(my %PARSERNAMES,"PARSERNAMES",0644) or die "Cannot open ParserNames: $!";
 }
 
 sub AddParserName {
 	my ($self,$parser_name) = @_;
+	chdir($self->{CurrentDirectory});
 	# Assigns a unique identifier to a parser name. the identifier will be used as a Result folder name/ database table name.
 	dbmopen(my %PARSERNAMES,"PARSERNAMES",0644) or die "Cannot open ParserNames: $!";
 	my $name_key = $self->GenerateResultKey();
@@ -120,13 +134,6 @@ sub MakeColorPrefsFolder {
 sub CreateDatabase {
 	my ($self) = @_;
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
-}
-
-sub SetTaxDump {
-	my ($self) = @_;
-	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
-	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
-	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
 }
 
 sub GetPathSeparator {
@@ -268,7 +275,7 @@ sub new {
 	
 	my $self = $class->SUPER::new($parent,-1);
 	$self->SetBackgroundColour($turq);
-	$self->{TreeListBox} = FileBox->new($self);
+	$self->{TreeListBox} = undef;
 	bless ($self,$class);
 	$self->TreeBox();
 	$self->FillTrees();
@@ -284,6 +291,7 @@ sub TreeBox {
 	my $tax_center_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $tax_label = Wx::StaticBox->new($self,-1,"Choose a Taxonomy Result");
 	my $tax_label_sizer = Wx::StaticBoxSizer->new($tax_label,wxVERTICAL);
+	$self->{TreeListBox} = FileBox->new($self);
 	$tax_label_sizer->Add($self->{TreeListBox}->{ListBox},1,wxCENTER|wxEXPAND);
 	$tax_center_h->Add($tax_label_sizer,1,wxCENTER|wxEXPAND);
 	$tax_center_v->Add($tax_center_h,1,wxCENTER|wxEXPAND);
@@ -308,15 +316,16 @@ sub TreeBox {
 	$sizer->Add($g_button_sizer_h,1,wxEXPAND);
 	$self->SetSizer($sizer);
 	
-	EVT_BUTTON($self,$g_button,sub{$self->Generate($self->{TreeListBox}->GetFile())});
+	EVT_BUTTON($self,$g_button,sub{$self->Generate($self->{TreeListBox}->GetFile(),$title_ctrl->GetValue)});
 }
 
 sub FillTrees {
 	my ($self) = @_;
 	
+	chdir($control->{CurrentDirectory});
+	dbmopen(my %PARSERNAMES,"PARSERNAMES",0644) or die "Cannot open ParserNames: $!";
 	my $dir = $control->{Results};
 	opendir(DIR, $dir) or die $!;
-	dbmopen(my %PARSERNAMES,"PARSERNAMES",0644) or die "Cannot open ParserNames: $!";
 
     while (my $key = readdir(DIR)) {
     	next if ($key =~ m/^\./);
@@ -334,7 +343,10 @@ sub FillTrees {
 }
 
 sub Generate {
-	my ($self,$file) = @_;
+	my ($self,$file,$title) = @_;
+	if ($file eq "") {
+		return 0;
+	}
 	chdir($file);
 	dbmopen(my %NAMES,"NAMES",0644) or die "Cannot open Names: $!";
 	my $treeio = new Bio::TreeIO(-format => 'newick', -file => $file);
@@ -342,7 +354,7 @@ sub Generate {
 	for my $node($tree->get_nodes) {
 		$node->id($NAMES{$node->id});
 	}
-	my $frame = TaxonomyViewer->new($tree);
+	my $frame = TaxonomyViewer->new($tree,$title);
 	chdir($control->{CurrentDirectory});
 }
 
@@ -655,6 +667,7 @@ sub GenerateCharts {
 
 sub NewPieChart {
 	my ($self,$file_label) = @_;
+	chdir($self->{FileHash}{$file_label});
 	my $data_reader = TaxonomyData->new($self->{FileHash}{$file_label});
 	my $new_page = $self->TypePanel($data_reader);
 	push(@{$self->{ObjectDataReaders}},$data_reader);
@@ -1286,6 +1299,10 @@ sub FillResultMenu {
 	EVT_LISTBOX($self->{LeftPanel},$self->{ResultListBox}->{ListBox},sub{$self->DisplayHits($self->{ResultListBox}->GetFile)});
 }
 
+my %hmap = ();
+my $hcol = 0;
+my %hcolstate = (0=>-1,1=>-1,2=>-1);
+
 sub DisplayHits {
 	my ($self,$table_name) = @_;
 	$self->{CurrentTableName} = $table_name;
@@ -1293,17 +1310,26 @@ sub DisplayHits {
 	my $hits = $control->{Connection}->selectall_arrayref("SELECT DISTINCT hitname FROM " . $self->{CurrentTableName} . "_HitInfo");
 	for (my $i=0; $i<@$hits; $i++) {
 		my $hitname = $hits->[$i]->[0];
-		$self->{ResultHitListCtrl}->InsertStringItem($i,"");
+		my $item = $self->{ResultHitListCtrl}->InsertStringItem($i,"");
+		$self->{ResultHitListCtrl}->SetItemData($item,$i);
 		my $count = $control->{Connection}->selectrow_arrayref("SELECT COUNT(hitname) FROM " . $self->{CurrentTableName} . "_AllHits WHERE hitname=?",undef,$hitname);
 		$self->{ResultHitListCtrl}->SetItem($i,0,$hitname);
+		$hmap{0}{$i} = $hitname;
 		$self->{ResultHitListCtrl}->SetItem($i,1,$count->[0]);
+		$hmap{1}{$i} = $count->[0];
 		my $descr = $control->{Connection}->selectrow_arrayref("SELECT description FROM " . $self->{CurrentTableName} . "_HitInfo WHERE hitname=?",undef,$hitname);
 		$self->{ResultHitListCtrl}->SetItem($i,2,$descr->[0]);
+		$hmap{2}{$i} = $descr->[0];
 	}
 	$self->{ResultHitListCtrl}->SetColumnWidth(2,-1);
 	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultHitListCtrl},\&Save);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultHitListCtrl},\&DisplayQueries);
+	EVT_LIST_COL_CLICK($self,$self->{ResultHitListCtrl},\&OnSortHit);
 } 
+
+my %qmap = ();
+my $qcol = 0;
+my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1,5=>-1,6=>-1,7=>-1,8=>-1,9=>-1);
 
 sub DisplayQueries {
 	my ($self,$event) = @_;
@@ -1312,45 +1338,79 @@ sub DisplayQueries {
 	my $queries = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentTableName} . "_AllHits WHERE hitname=?",undef,$hitname);
 	for (my $i=0; $i<@$queries; $i++) {
 		my $query_row = $queries->[$i];
-		$self->{ResultQueryListCtrl}->InsertStringItem($i,"");
+		my $item = $self->{ResultQueryListCtrl}->InsertStringItem($i,"Hello");
+		$self->{ResultQueryListCtrl}->SetItemData($item,$i);
 		$self->{ResultQueryListCtrl}->SetItem($i,0,$query_row->[0]);
-		$self->{ResultQueryListCtrl}->SetItemData(0,$query_row->[0]);
+		$qmap{0}{$i} = $query_row->[0];
 		$self->{ResultQueryListCtrl}->SetItem($i,1,$query_row->[1]);
-		$self->{ResultQueryListCtrl}->SetItemData(1,$query_row->[1]);
+		$qmap{1}{$i} = $query_row->[1];
 		my $qlength = $control->{Connection}->selectrow_arrayref("SELECT qlength FROM " . $self->{CurrentTableName} . "_QueryInfo WHERE query=?",undef,$query_row->[0]);
 		$self->{ResultQueryListCtrl}->SetItem($i,2,$qlength->[0]);
-		$self->{ResultQueryListCtrl}->SetItemData(2,$qlength->[0]);
+		$qmap{2}{$i} = $qlength->[0];
 		my $hit_row = $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentTableName} . "_AllHits
 		WHERE query=? AND rank=?",undef,$query_row->[0],$query_row->[1]);
 		$self->{ResultQueryListCtrl}->SetItem($i,3,$hit_row->[3]);
+		$qmap{3}{$i} = $hit_row->[3];
 		$self->{ResultQueryListCtrl}->SetItem($i,4,$hit_row->[4]);
+		$qmap{4}{$i} = $hit_row->[4];
 		$self->{ResultQueryListCtrl}->SetItem($i,5,$hit_row->[5]);
+		$qmap{5}{$i} = $hit_row->[5];
 		$self->{ResultQueryListCtrl}->SetItem($i,6,$hit_row->[6]);
+		$qmap{6}{$i} = $hit_row->[6];
 		$self->{ResultQueryListCtrl}->SetItem($i,7,$hit_row->[7]);
+		$qmap{7}{$i} = $hit_row->[7];
 		$self->{ResultQueryListCtrl}->SetItem($i,8,$hit_row->[8]);
+		$qmap{8}{$i} = $hit_row->[8];
 		$self->{ResultQueryListCtrl}->SetItem($i,9,$hit_row->[9]);
+		$qmap{9}{$i} = $hit_row->[9];
 	}
 	EVT_LIST_COL_CLICK($self,$self->{ResultQueryListCtrl},\&OnSortQuery);
 }
 
-sub Compare {
-	my ($self,$item1,$item2) = @_;
-	print $item1 . " " . $item2 . "\n";
-	if ($item1 > $item2) {
-		return 1;
+sub QCompare {
+	my ($item1,$item2) = @_;
+	my $data1 = $qmap{$qcol}{$item1};
+	my $data2 = $qmap{$qcol}{$item2};
+	
+	if ($data1 > $data2) {
+		return $qcolstate{$qcol};
 	}
-	elsif ($item1 < $item2) {
-		return -1;
+	elsif ($data1 < $data2) {
+		return -$qcolstate{$qcol};
 	}
 	else {
 		return 0;
 	}
 }
 
+sub HCompare {
+	my ($item1,$item2) = @_;
+	my $data1 = $hmap{$hcol}{$item1};
+	my $data2 = $hmap{$hcol}{$item2};
+	
+	if ($data1 > $data2) {
+		return $hcolstate{$hcol};
+	}
+	elsif ($data1 < $data2) {
+		return -$hcolstate{$hcol};
+	}
+	else {
+		return 0;
+	}
+}
+
+sub OnSortHit {
+	my($self,$event) = @_;
+	$hcol = $event->GetColumn;
+	$hcolstate{$hcol} *= -1;
+	$self->{ResultHitListCtrl}->SortItems(\&HCompare);
+}
+
 sub OnSortQuery {
 	my($self,$event) = @_;
-	my $col = $event->GetColumn;
-	$self->{ResultQueryListCtrl}->SortItems(\&Compare);
+	$qcol = $event->GetColumn;
+	$qcolstate{$qcol} *= -1;
+	$self->{ResultQueryListCtrl}->SortItems(\&QCompare);
 }
 
 sub Save {
@@ -1358,11 +1418,11 @@ sub Save {
 	my $hitname = $event->GetText;
 	my $dialog = Wx::FileDialog->new($self,"Save Queries to FASTA","","",".",wxFD_SAVE);
 	if ($dialog->ShowModal==wxID_OK) {
-		my $queries = $control->{Connection}->selectall_arrayref("SELECT query FROM Pool3_trimmed_all_bx_nr_txt_AllHits
+		my $queries = $control->{Connection}->selectall_arrayref("SELECT query FROM " . $self->{CurrentTableName} . "_AllHits
 		WHERE hitname=?",undef,$hitname);
 		open(FASTA, '>>' . $dialog->GetPath . ".fasta");
 		for my $query(@$queries) {
-			my $sequence = $control->{Connection}->selectrow_arrayref("SELECT sequence FROM Pool3_trimmed_all_bx_nr_txt_QueryInfo
+			my $sequence = $control->{Connection}->selectrow_arrayref("SELECT sequence FROM " . $self->{CurrentTableName} . "_QueryInfo
 			WHERE query=?",undef,$query->[0]);
 			print FASTA ">" . $query->[0] . "\n";
 		  	print FASTA $sequence->[0] . "\n";
@@ -1372,6 +1432,7 @@ sub Save {
 	}
 	$dialog->Destroy;
 }
+
 
 package QueuePanel;
 

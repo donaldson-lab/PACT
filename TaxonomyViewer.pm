@@ -13,10 +13,13 @@ use Wx::Event qw(EVT_LEFT_DOWN);
 use Wx::Event qw(EVT_MOTION);
 
 sub new {
-	my ($class,$parent,$x,$y,$taxonomy) = @_;
+	my ($class,$parent,$x,$y,$taxonomy,$title) = @_;
 	my $self = $class->SUPER::new($parent,-1);
 	$self->{Taxonomy} = $taxonomy;
+	$self->{Title} = $title;
 	$self->{Labels} = 1;
+	$self->{NodeLabels} = ();
+	for my $node($self->{Taxonomy}->get_nodes('breadth')) { $self->{NodeLabels}{$node} = 1; }
 	$self->SetBackgroundColour(wxWHITE);
 	$self->{Colors} = (); # actually pens
 	$self->SetColors();
@@ -54,24 +57,25 @@ sub GetClickedCoordinates {
 	my $size = $self->GetClientSize();
 	my $width = $size->GetWidth();
 	my $height = $size->GetHeight();
-	my $center_x = $width/2;
-	my $center_y = $height/2;
 	my $x = $event->GetPosition()->x - $width/2;
 	my $y = $height/2 - $event->GetPosition()->y;
-	my $clicked_radius = sqrt(($event->GetPosition()->x-$center_x)**2 + ($event->GetPosition()->y-$center_y)**2);
-	if ($clicked_radius > $self->{Offset}) {
-		EVT_MOTION($self,\&Resize);
-	}
 	
 	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		my $distance = sqrt(($x-$coords[0])**2 + ($y-$coords[1])**2);
 		if ( $distance < 3.0) {
+			if ($self->{Labels} != 1) {
+				$self->{NodeLabels}{$node} *= -1;	
+			}
 			$self->{SelectedNode} = $node;
+			$self->OnSize(0);
 			EVT_MOTION($self,\&MoveNode);
 			return 1;
 		}
 	}
+	$self->{OriginalOffset} = $self->{Offset};
+	$self->{MotionStart} = [$event->GetPosition()->x,$event->GetPosition()->y];
+	EVT_MOTION($self,\&Resize);
 	$self->{SelectedNode} = undef;
 }
 
@@ -84,10 +88,13 @@ sub Resize {
 	my $center_x = $width/2;
 	my $center_y = $height/2;
 	if ($event->Dragging) {
-		$self->{Offset} = sqrt(($x-$center_x)**2 + ($y-$center_y)**2);
+		my $dot = ($self->{MotionStart}->[0] - $x)*($center_x - $x) + ($self->{MotionStart}->[1] - $y)*($center_y - $y);
+		my $center_distance = sqrt(($x-$center_x)**2 + ($y-$center_y)**2);
+		my $distance = $dot/$center_distance;
+		$self->{Offset} = $self->{OriginalOffset} + $distance;
 		$self->getCoordinates();
 		$self->OnSize(0);
-	}	
+	}
 }
 
 sub MoveNode {
@@ -125,7 +132,7 @@ sub draw {
 		$dc->SetPen(wxBLACK_PEN);
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		$dc->DrawCircle($coords[0]+$width/2,-$coords[1]+$height/2,3);
-		if ($self->{Labels} == 1) {
+		if ($self->{NodeLabels}{$node}==1) {
 			my @string_data = $dc->GetTextExtent($node->id,undef); # Get text height to center.
 			my $w = $string_data[0];
 			my $h = $string_data[1];
@@ -172,6 +179,10 @@ sub SetColors {
 	my ($self) = @_;
 	# height of tree
 	my $height = int($self->{Taxonomy}->height) + 1;
+	my $r = rand(255);
+	my $g = rand(255);
+	my $b = rand(255);
+	
 	for (my $i=0; $i<=$height; $i++) {
 		my $r = rand(255);
 		my $g = rand(255);
@@ -269,10 +280,10 @@ use Wx qw /:everything/;
 use Wx::Event qw(EVT_MENU);
 
 sub new {
-	my ($class,$tree) = @_;
+	my ($class,$tree,$title) = @_;
 	my $self = $class->SUPER::new(undef,-1,"",[-1,-1],[1000,1000]);
 	$self->TopMenu();
-	$self->{TaxView} = TaxonomyPanel->new($self,-1,-1,$tree);
+	$self->{TaxView} = TaxonomyPanel->new($self,-1,-1,$tree,$title);
 	$self->Show;
 	return $self;
 }
@@ -327,6 +338,9 @@ sub Switch {
 sub Labels {
 	my ($self) = @_;
 	$self->{TaxView}->{Labels} *= -1;
+	for my $node($self->{TaxView}{Taxonomy}->get_nodes('breadth')) {
+		$self->{TaxView}->{NodeLabels}{$node} = $self->{TaxView}->{Labels};
+	}
 	$self->{TaxView}->OnSize(0);
 }
 

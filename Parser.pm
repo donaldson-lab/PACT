@@ -980,9 +980,10 @@ sub PieAllClassifiersData {
 package TaxonomyData;
 use Bio::Tree::Tree;
 use Bio::TreeIO;
+use File::Basename;
 
 sub new {
-	my ($class,$newick_file,$data_location) = @_;
+	my ($class,$newick_file) = @_;
 	my $self = {};
 	$self->{TreeIO} = new Bio::TreeIO(-file=>$newick_file,-format=>'newick');
 	$self->{Tree} = $self->{TreeIO}->next_tree;
@@ -990,11 +991,14 @@ sub new {
 	$self->{RANKS} = ();
 	$self->{SEQIDS} = ();
 	$self->{VALUES} = ();
-	bless ($self,$class);
+	my ($filename,$directories) = fileparse($newick_file);
+	chdir($directories);
 	dbmopen(%{$self->{NAMES}},"NAMES",0644) or die "Cannot open tree data: $!";
 	dbmopen(%{$self->{RANKS}},"RANKS",0644) or die "Cannot open tree data: $!";
 	dbmopen(%{$self->{SEQIDS}},"SEQIDS",0644) or die "Cannot open tree data: $!";
 	dbmopen(%{$self->{VALUES}},"VALUES",0644) or die "Cannot open tree data: $!";
+	$self->{RootName} = $self->{NAMES}{$self->{Tree}->get_root_node()->id};
+	bless ($self,$class);
 	return $self;
 }
 
@@ -1008,7 +1012,7 @@ sub PieDataNode {
 sub PieDataRank {
 	my ($self,$sub_node,$rank) = @_;
 	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
-	for my $sub_sub_node(@{$self->{$sub_node->get_all_Descendents}}) {
+	for my $sub_sub_node($sub_node->get_all_Descendents) {
 		if ($self->{RANKS}{$sub_sub_node->id} eq $rank) {
 			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
 			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
@@ -1020,7 +1024,7 @@ sub PieDataRank {
 
 sub FindNode {
 	my ($self,$sub_node_name) = @_;
-	for my $node(@{$self->{Tree}->get_nodes}) {
+	for my $node($self->{Tree}->get_nodes) {
 		if ($self->{NAMES}{$node->id} eq $sub_node_name) {
 			return $node;
 		}
@@ -1030,7 +1034,7 @@ sub FindNode {
 sub GetNodesAlphabetically {
 	my ($self) = @_;
 	my @node_names = ();
-	for my $node(@{$self->{Tree}->get_nodes}) {
+	for my $node($self->{Tree}->get_nodes) {
 		push(@node_names,$self->{NAMES}{$node->id});
 	}
 	my @alpha = (sort {lc($a) cmp lc($b)} @node_names);
