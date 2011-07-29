@@ -270,14 +270,9 @@ sub Draw {
 	$self->{Radius} = $radius;
 
 	my $prev_angle = 0;
-	my $has_keyword = 0;
 	
 	#Draw Legend Rectangle.
 	$self->DrawLegendRectangle($dc,$legend_x,$legend_y,$legend_width,$legend_height);
-	
-	if ($self->{Values} == 1) {
-		$dc->DrawText("n=" . $total,3/4*$legend_width,$legend_y - 1/4*$legend_height);
-	}
 
 	## Draw Pie Chart and Legend
 	for (my $count=0;$count<@values;$count++){
@@ -292,6 +287,16 @@ sub Draw {
 
 		# Draws the label on the legend.
 		$self->DrawLegendItem($dc,$legend_width,$legend_height,$legend_x,$legend_y,\@labels,$count);
+	}
+
+	if ($self->{Values} == 1) {
+		$dc->DrawText("n=" . $total,3/4*$legend_width,$legend_y - 1/4*$legend_height);
+		my $prev_angle = 0;
+		for (my $count=0;$count<@values;$count++){
+			my $current_angle = $prev_angle + 2*pi*$values[$count]/$total;
+			$self->DrawValue($dc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$values[$count]);
+			$prev_angle = $current_angle;
+		}
 	}
 	
 	# Draw title, if one is specified.
@@ -342,6 +347,39 @@ sub DrawLegendItem {
 	
 }
 
+sub DrawValue {
+	my ($self,$dc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$value) = @_;
+	my @string_data = $dc->GetTextExtent($value,undef); # Get text height of digits.
+	my $w = $string_data[0];
+	my $h = $string_data[1];
+	
+	my $value_x;
+	my $value_y;
+	my $values_radius;
+	if (defined $self->{ValuesRadius}) {
+		$values_radius = $self->{ValuesRadius};
+	}
+	else {
+		$values_radius = (1/3)*$radius;
+	}
+	my $mid_angle_cos = cos(($current_angle+$prev_angle)/2);
+	my $mid_angle_sin = sin(($current_angle+$prev_angle)/2);
+	if ($mid_angle_cos < 0) {
+		$value_x = $width/2 + $values_radius*$mid_angle_cos - $w;
+	}
+	else {
+		$value_x = $width/2 + $values_radius*$mid_angle_cos;
+	}
+	if ($mid_angle_sin < 0) {
+		$value_y = ($height - $legend_height)/2 - $values_radius*$mid_angle_sin;
+	}
+	else {
+		$value_y = ($height - $legend_height)/2 - $values_radius*$mid_angle_sin - $h;
+	}
+	$dc->DrawText($value,$value_x,$value_y);
+
+}
+
 sub DrawSlice {
 	my ($self,$dc,$gc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$label,$value) = @_;
 	
@@ -358,41 +396,7 @@ sub DrawSlice {
 	my $end = 2*pi - $current_angle;
 	$path->AddArc(0,0,(1/3)*$radius,$start,$end,0);
 	$gc->FillPath($path,wxODDEVEN_RULE);
-	$gc->Translate(-$width/2,-2*$height/5);
-	
-	# Draw Values
-	if ($self->{Values} == 1) {
-		my @string_data = $dc->GetTextExtent($value,undef); # Get text height of digits.
-		my $w = $string_data[0];
-		my $h = $string_data[1];
-		
-		my $value_x;
-		my $value_y;
-		my $values_radius;
-		if (defined $self->{ValuesRadius}) {
-			$values_radius = $self->{ValuesRadius};
-		}
-		else {
-			$values_radius = (1/3)*$radius;
-		}
-		my $mid_angle_cos = cos(($current_angle+$prev_angle)/2);
-		my $mid_angle_sin = sin(($current_angle+$prev_angle)/2);
-		if ($mid_angle_cos < 0) {
-			$value_x = $width/2 + $values_radius*$mid_angle_cos - $w;
-		}
-		else {
-			$value_x = $width/2 + $values_radius*$mid_angle_cos;
-		}
-		if ($mid_angle_sin < 0) {
-			$value_y = ($height - $legend_height)/2 - $values_radius*$mid_angle_sin;
-		}
-		else {
-			$value_y = ($height - $legend_height)/2 - $values_radius*$mid_angle_sin - $h;
-		}
-		$dc->DrawText($value,$value_x,$value_y);
-	}
-	
-	
+	$gc->Translate(-$width/2,-2*$height/5);	
 }
 
 sub DrawTitle {
