@@ -13,6 +13,8 @@ my $blue = Wx::Colour->new(130,195,250);
 
 package ProgramControl;
 use Cwd;
+use LWP::Simple;
+use Archive::Tar;
 
 sub new {
 	my $class = shift;
@@ -33,6 +35,11 @@ sub SetTaxDump {
 	my ($self) = @_;
 	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
 	mkdir($self->{TaxDump});
+	chdir($self->{TaxDump});
+	#getstore("ftp://ftp.ncbi.nih.gov/pub/taxonomy","taxdump.tar.gz");
+	#my $tar = Archive::Tar->new;
+	#$tar->read("ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz");
+	#$tar->extract();
 	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
 	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
 }
@@ -74,6 +81,13 @@ sub AddParserName {
 	}
 	$PARSERNAMES{$name_key} = $parser_name;
 	return $name_key;
+}
+
+sub AddTableName {
+	my ($self,$label,$key) = @_;
+	chdir($self->{CurrentDirectory});
+	dbmopen(my %TABLENAMES,"TABLENAMES",0644) or die "Cannot open ParserNames: $!";
+	$TABLENAMES{$key} = $label;
 }
 
 sub GenerateResultKey {
@@ -133,7 +147,9 @@ sub MakeColorPrefsFolder {
 
 sub CreateDatabase {
 	my ($self) = @_;
+	chdir($self->{CurrentDirectory});
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
+	dbmopen(my %TABLENAMES,"TABLENAMES",0644) or die "Cannot open TableNames: $!";
 }
 
 sub GetPathSeparator {
@@ -238,7 +254,6 @@ sub Display {
 }
 
 
-
 package FileBox;
 use Wx qw /:everything/;
 
@@ -246,7 +261,7 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = {};
-	$self->{FileHash} = ();
+	$self->{FileArray} = ();
 	$self->{ListBox} = Wx::ListBox->new($parent,-1);
 	bless ($self,$class);
 	return $self;
@@ -255,13 +270,17 @@ sub new {
 sub AddFile {
 	my ($self,$file_path,$file_label) = @_;
 	$self->{ListBox}->Insert($file_label,$self->{ListBox}->GetCount);
-	$self->{FileHash}{$file_label} = $file_path;
+	push(@{$self->{FileArray}},$file_path);
 }
 
 sub GetFile {
 	my ($self) = @_;
-	my $file_label = $self->{ListBox}->GetStringSelection;
-	return $self->{FileHash}{$file_label};
+	return $self->{FileArray}[$self->{ListBox}->GetSelection];
+}
+
+sub DeleteFile {
+	my $self = shift;
+	splice(@{$self->{FileArray}},$self->{ListBox}->GetSelection,1);
 }
 
 package TreeMenu;
@@ -355,7 +374,6 @@ sub Generate {
 		$node->id($NAMES{$node->id});
 	}
 	my $frame = TaxonomyViewer->new($tree,$title);
-	chdir($control->{CurrentDirectory});
 }
 
 package ClassificationPiePanel;
@@ -806,6 +824,7 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
+	$self->SetBackgroundColour($blue);
 	$self->{ParentNotebook} = $parent;
 
 	$self->{BlastFileTextBox} = undef;
@@ -918,7 +937,7 @@ sub NewParserMenu {
 	
 	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1);
 	
-	$self->SetBackgroundColour($blue);
+	$self->{OptionsNotebook}->SetBackgroundColour($blue);
 	
 	my $filespanel = $self->InputFilesMenu();
 	my $classificationpanel = $self->ClassificationMenu();
@@ -942,6 +961,7 @@ sub InputFilesMenu {
 	my ($self) = @_;
 	
 	my $filespanel = Wx::Panel->new($self->{OptionsNotebook},-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$filespanel->SetBackgroundColour($blue);
 	my $filessizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $parser_label = Wx::StaticBox->new($filespanel,-1,"Parser Name");
@@ -1001,6 +1021,7 @@ sub ClassificationMenu {
 	}
 	
 	my $classificationpanel = Wx::Panel->new($self->{OptionsNotebook},-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$classificationpanel->SetBackgroundColour($blue);
 	my $classificationsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $itemssizer = Wx::BoxSizer->new(wxVERTICAL);
@@ -1073,6 +1094,7 @@ sub TaxonomyMenu {
 	my ($self) = @_;
 	
 	my $tax_panel = Wx::Panel->new($self->{OptionsNotebook},-1);
+	$tax_panel->SetBackgroundColour($blue);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $source_label = Wx::StaticBox->new($tax_panel,-1,"Source");
@@ -1136,6 +1158,7 @@ sub ParameterMenu {
 	my ($self) = @_;
 	
 	my $panel = Wx::Panel->new($self->{OptionsNotebook},-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$panel->SetBackgroundColour($blue);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $choice_wrap = Wx::BoxSizer->new(wxVERTICAL);
@@ -1165,6 +1188,7 @@ sub OutputMenu {
 	my ($self) = @_;
 	
 	my $add_panel = Wx::Panel->new($self->{OptionsNotebook},-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$add_panel->SetBackgroundColour($blue);
 	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	
@@ -1226,7 +1250,6 @@ sub new {
 sub MainDisplay {
 	my ($self) = @_;
 	$self->SetBackgroundColour($turq);
-	
 	
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 		
@@ -1292,8 +1315,9 @@ sub MainDisplay {
 
 sub FillResultMenu {
 	my ($self) = @_;
-	dbmopen(my %PARSERNAMES,"PARSERNAMES",0644) or die "Cannot open ParserNames: $!";
-	while ( my ($key, $value) = each(%PARSERNAMES) ) {
+	chdir($control->{CurrentDirectory});
+	dbmopen(my %TABLENAMES,"TABLENAMES",0644) or die "Cannot open ParserNames: $!";
+	while ( my ($key, $value) = each(%TABLENAMES) ) {
 		$self->{ResultListBox}->AddFile($key,$value);
 	}
 	EVT_LISTBOX($self->{LeftPanel},$self->{ResultListBox}->{ListBox},sub{$self->DisplayHits($self->{ResultListBox}->GetFile)});
@@ -1470,8 +1494,6 @@ sub SetPanels {
 	
 	$self->{Sizer}->Add($self,1,wxGROW);
 	$self->SetSizer($self->{Sizer});
-	
-	$self->{WidgetToProcess} = (); # when a widget is updated, its associated process should be as well.
 	
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 		
@@ -1690,6 +1712,7 @@ sub GenerateParser {
 	
 	if ($page->{TableCheck}->GetValue==1) {
 		my $table = SendTable->new($key,$control);
+		$control->AddTableName($label,$key);
 		$parser->AddProcess($table);
 	}
 	if ($page->{OutputDirectoryPath} ne "") {

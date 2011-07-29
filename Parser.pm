@@ -131,7 +131,7 @@ sub NoHits {
 	my $sequence = $self->{FastaMemory}{$query_name};
 	
 	chdir($self->{InternalDirectory});
-	open(NOHITSFASTA, '>>' . "NoHits.pact.fasta");
+	open(NOHITSFASTA, '>>' . "NoHits.fasta");
 	
 	print NOHITSFASTA ">" . $query_name . "\n";
   	print NOHITSFASTA $sequence . "\n";
@@ -170,7 +170,7 @@ sub Parse {
 	}
 	
 	for my $process(@{$self->{Processes}}) {
-		$process->EndRoutine();
+		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
 	}
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
@@ -213,6 +213,7 @@ sub new {
      
      my $self = {
      	Data => undef,
+     	IdToName => undef,
      	Control => $control
 	 };
      
@@ -228,8 +229,19 @@ sub HitRoutine {
 	my ($self,$hitdata) = @_;
 }
 
+sub AddData {
+	my ($self,$id,$name) = @_;
+	if (not defined $self->{Data}{$id}) {
+		$self->{Data}{$id} = 1;
+	}
+	else {
+		$self->{Data}{$id} += 1;
+	}
+	$self->{IdToName}{$id} = $name;
+}
+
 sub EndRoutine {
-	my ($self) = @_;
+	my ($self,$parser_name,$parser_directory) = @_;
 }
 
 sub SaveRoutine {
@@ -238,6 +250,7 @@ sub SaveRoutine {
 
 package TextPrinter;
 use base ("Process");
+use File::Copy;
 
 sub new {
 	 my ($class,$dir,$control) = @_;
@@ -290,6 +303,7 @@ sub HitRoutine {
 	my $endq = $hitdata->[13];
 	my $hitlength = $hitdata->[14];
 	
+	$self->AddData($gi,$hitname);
 	$self->PrintHit($self->{OutputDirectory},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 }
 
@@ -338,16 +352,34 @@ sub PrintFasta {
 }
 
 sub EndRoutine {
-	my ($self) = @_;
-	
-	# Needs: cleaning up header files and,
-	# Creating No Hits folder and fasta file
+	my ($self,$parser_name,$parser_directory) = @_;
+	$self->NoHitsFolder($parser_name,$parser_directory);
+	$self->StatsFile();
 	
 	for my $process(@{$self->{Processes}}) {
-				$process->EndRoutine();
+			$process->EndRoutine($parser_name,$parser_directory);
 	}
 	
 	$self->PrintSummaryTexts();
+}
+
+sub NoHitsFolder {
+	my ($self,$parser_name,$parser_directory) = @_;
+	# Needs: cleaning up header files and stats file
+	chdir($self->{OutputDirectory});
+	$self->{NoHits} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "NoHits";
+	mkdir($self->{NoHits});
+	copy ($parser_directory . $self->{Control}->{PathSeparator} . "NoHits.fasta",$self->{NoHits} . $self->{Control}->{PathSeparator} . $parser_name . ".NoHits.fasta");
+}
+
+sub StatsFile {
+	my $self = shift;
+	chdir($self->{OutputDirectory});
+	open(STATSFILE, '>>' . "Stats.txt");
+	for my $key(keys(%{$self->{Data}})){
+		print STATSFILE $self->{IdToName}{$key} . ": " . $self->{Data}{$key} . "\n";
+	}
+	close STATSFILE;
 }
 
 sub SaveRoutine {
@@ -475,7 +507,7 @@ sub PrintFound {
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
 	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($parser_name);
+		$process->SaveRoutine($parser_name,$parser_directory);
 	}
 	$self->{Taxonomy}->SaveRoutine($parser_name,$parser_directory);
 }
@@ -621,7 +653,6 @@ sub SaveRoutine {
 	chdir($parser_directory);
 	my $trees = $self->GetTrees();
 	$self->SaveTrees($trees);
-	chdir($self->{Control}->{CurrentDirectory});
 }
 
 ## add file format as parameter. Save trees in individual files.
@@ -805,9 +836,7 @@ sub PrintSummaryText {
 
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
-
 	chdir($parser_directory);
-
 	my $output = new IO::File(">" . $self->{Title} . ".pact.classification.xml");
 	my $writer = new XML::Writer(OUTPUT => $output);
 	$writer->startTag("root","Title"=>$self->{Title});
@@ -825,8 +854,6 @@ sub SaveRoutine {
 	$writer->endTag("root");
 	$writer->end();
 	$output->close();
-		
-	chdir($self->{Control}->{CurrentDirectory});
 }
 
 

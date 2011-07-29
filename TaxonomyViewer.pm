@@ -19,10 +19,11 @@ sub new {
 	$self->{Title} = $title;
 	$self->{Labels} = 1;
 	$self->{NodeLabels} = ();
-	for my $node($self->{Taxonomy}->get_nodes('breadth')) { $self->{NodeLabels}{$node} = 1; }
+	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
+		$self->{NodeLabels}{$node} = 1;
+	}
 	$self->SetBackgroundColour(wxWHITE);
 	$self->{Colors} = (); # actually pens
-	$self->SetColors();
 	$self->{SelectedNode} = undef;
 	$self->{Offset} = 400;
 	$self->getCoordinates();
@@ -90,7 +91,13 @@ sub Resize {
 	if ($event->Dragging) {
 		my $dot = ($self->{MotionStart}->[0] - $x)*($center_x - $x) + ($self->{MotionStart}->[1] - $y)*($center_y - $y);
 		my $center_distance = sqrt(($x-$center_x)**2 + ($y-$center_y)**2);
-		my $distance = $dot/$center_distance;
+		my $distance;
+		if ($center_distance == 0) {
+			$distance = 0;
+		}
+		else { 
+			$distance = $dot/$center_distance;
+		}
 		$self->{Offset} = $self->{OriginalOffset} + $distance;
 		$self->getCoordinates();
 		$self->OnSize(0);
@@ -124,7 +131,12 @@ sub draw {
 	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		my @pcoords = @{$self->{vertex_to_coords}{$node->ancestor()}};
-		$dc->SetPen($self->{Colors}{$self->GetDepth($node)});
+		if (defined $self->{Colors}{$self->GetDepth($node)}) {
+			$dc->SetPen($self->{Colors}{$self->GetDepth($node)});
+		}
+		else {
+			$dc->SetPen($self->SetLevelColor($self->GetDepth($node)));
+		}
 		$dc->DrawLine($coords[0]+$width/2,-$coords[1]+$height/2,$pcoords[0]+$width/2,-$pcoords[1]+$height/2);
 	}
 	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
@@ -175,22 +187,13 @@ sub DrawTitle {
 	
 }
 
-sub SetColors {
-	my ($self) = @_;
-	# height of tree
-	my $height = int($self->{Taxonomy}->height) + 1;
+sub SetLevelColor {
+	my ($self,$level) = @_;
 	my $r = rand(255);
 	my $g = rand(255);
 	my $b = rand(255);
-	
-	for (my $i=0; $i<=$height; $i++) {
-		my $r = rand(255);
-		my $g = rand(255);
-		my $b = rand(255);
-		my $pen = Wx::Pen->new(Wx::Colour->new($r,$g,$b),2,wxSOLID);
-		$self->{Colors}{$i} = $pen;
-	}
-
+	my $pen = Wx::Pen->new(Wx::Colour->new($r,$g,$b),2,wxSOLID);
+	$self->{Colors}{$level} = $pen;
 }
 
 sub GetDepth {
@@ -331,7 +334,7 @@ sub Export {
 
 sub Switch {
 	my ($self) = @_;
-	$self->{TaxView}->SetColors();
+	$self->{TaxView}->{Colors} = ();
 	$self->{TaxView}->OnSize(0);
 }
 
