@@ -1,3 +1,18 @@
+=head1 NAME
+
+Parser
+
+=head1 SYNOPSIS
+
+my $fasta_parser = FASTAParser->new();
+my $blast_parser = BlastParser->new();
+
+=head1 DESCRIPTION
+
+This is a base class for parsing sequence similarity search output files.
+
+=cut
+
 use strict;
 
 package Parser;
@@ -25,6 +40,7 @@ sub new {
      	HasTaxonomy => 0,
      	Name => $name,
      	DoneParsing => 0,
+     	NumSeqs => 0,
      	Bit =>40.0,
      	Evalue => .001,
      	Check => 0
@@ -67,6 +83,7 @@ sub SetFastaFile {
 		while ( my $seq = $inFasta->next_seq) {
 	    	$self->{FastaMemory}{$seq->id} = $seq->seq;
 		}
+		$self->{NumSeqs} = keys(%{$self->{FastaMemory}});
 		$self->{FastaFile} = $fasta_name;
 		return 1;
 	}
@@ -142,9 +159,15 @@ sub NoHits {
 
 sub Parse {
 	
-	my ($self) = @_;
+	my ($self,$progress_dialog) = @_;
+	
+	my $count = 0;
 	
 	while( my $result = $self->{In}->next_result) {
+		$count++;
+		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
+		
+		$progress_dialog->Update($progress_ratio);
 
 		if (my $firsthit = $result->next_hit) {
 			my $firsthsp = $firsthit->next_hsp;
@@ -159,6 +182,7 @@ sub Parse {
 			}
 			
 			my $hitdata = $self->HitData($result,$firsthit,$firsthsp);
+			
 			for my $process(@{$self->{Processes}}) {
 				$process->HitRoutine($hitdata);
 			}
@@ -169,40 +193,14 @@ sub Parse {
 		
 	}
 	
+	$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
 		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
 	}
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
 	}
-	
-}
-
-# Base class of working with table data. Not to be confused with SendTable. To be moved to separate file.
-package Table;
-use DBI;
-
-sub new {
-     
-     my ($class) = @_;
-     
-     my $self = {
-     	Connection => undef,
-     	DatabaseName => undef,
-     	QueryTable => undef,
-     	HitTable => undef
-	 };
-     bless($self,$class);
-     return $self;
-
-}
-
-sub Connect {
-	my ($self,$name) = @_;
-	$self->{DatabaseName} = $name;
-	$self->{QueryTable} = $name;
-	$self->{HitTable} = $name . "Hits";
-	$self->{Connection} = DBI->connect("dbi:SQLite:" . $self->{DatabaseName} . ".db","","") or die("Couldn't open database");
+	$progress_dialog->Update(100);
 }
 
 package Process;
@@ -523,6 +521,7 @@ sub PrintSummaryTexts {
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
+use DB_File;
 use base ("Process");
 
 sub new {
@@ -658,10 +657,10 @@ sub SaveRoutine {
 ## add file format as parameter. Save trees in individual files.
 sub SaveTrees {
 	my ($self,$trees) = @_;
-	dbmopen(my %NAMES,"NAMES",0644) or die "Cannot open NAMES: $!";
-	dbmopen(my %RANKS,"RANKS",0644) or die "Cannot open RANKS: $!";
-	dbmopen(my %SEQIDS,"SEQIDS",0644) or die "Cannot open SEQIDS: $!";
-	dbmopen(my %VALUES,"VALUES",0644) or die "Cannot open VALUES: $!";
+	tie(my %NAMES,'DB_File',"NAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	tie(my %RANKS,'DB_File',"RANKS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	tie(my %SEQIDS,'DB_File',"SEQIDS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	tie(my %VALUES,'DB_File',"VALUES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	for my $tree (@$trees) {
 		my $title = $tree->get_root_node()->node_name;
 		my $tree_key = $self->{Control}->AddTaxonomy($title);
@@ -676,10 +675,10 @@ sub SaveTrees {
 		$out->write_tree($tree);
 		close $handle;
 	}
-	dbmclose(%NAMES);
-	dbmclose(%RANKS);
-	dbmclose(%SEQIDS);
-	dbmclose(%VALUES);
+	untie(%NAMES);
+	untie(%RANKS);
+	untie(%SEQIDS);
+	untie(%VALUES);
 }
 
 sub PrintSummaryText {
@@ -837,7 +836,7 @@ sub PrintSummaryText {
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
 	chdir($parser_directory);
-	my $output = new IO::File(">" . $self->{Title} . ".pact.classification.xml");
+	my $output = new IO::File(">" . $self->{Control}->AddClassification($self->{Title}) . ".xml");
 	my $writer = new XML::Writer(OUTPUT => $output);
 	$writer->startTag("root","Title"=>$self->{Title});
 	my %parents_hash = reverse %{$self->{ItemToParent}};
@@ -1007,23 +1006,18 @@ sub PieAllClassifiersData {
 package TaxonomyData;
 use Bio::Tree::Tree;
 use Bio::TreeIO;
-use File::Basename;
+use Fcntl;
+use DB_File;
 
 sub new {
-	my ($class,$newick_file) = @_;
+	my ($class,$newick_file,$names,$ranks,$seqids,$values) = @_;
 	my $self = {};
 	$self->{TreeIO} = new Bio::TreeIO(-file=>$newick_file,-format=>'newick');
 	$self->{Tree} = $self->{TreeIO}->next_tree;
-	$self->{NAMES} = ();
-	$self->{RANKS} = ();
-	$self->{SEQIDS} = ();
-	$self->{VALUES} = ();
-	my ($filename,$directories) = fileparse($newick_file);
-	chdir($directories);
-	dbmopen(%{$self->{NAMES}},"NAMES",0644) or die "Cannot open tree data: $!";
-	dbmopen(%{$self->{RANKS}},"RANKS",0644) or die "Cannot open tree data: $!";
-	dbmopen(%{$self->{SEQIDS}},"SEQIDS",0644) or die "Cannot open tree data: $!";
-	dbmopen(%{$self->{VALUES}},"VALUES",0644) or die "Cannot open tree data: $!";
+	$self->{NAMES} = $names;
+	$self->{RANKS} = $ranks;
+	$self->{SEQIDS} = $seqids;
+	$self->{VALUES} = $values;
 	$self->{RootName} = $self->{NAMES}{$self->{Tree}->get_root_node()->id};
 	bless ($self,$class);
 	return $self;

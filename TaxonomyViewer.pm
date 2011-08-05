@@ -1,3 +1,4 @@
+use Wx::Perl::Packager;
 use Wx;
 use Bio::Tree::Tree;
 use Bio::TreeIO;
@@ -12,28 +13,95 @@ use Wx::Event qw(EVT_SIZE);
 use Wx::Event qw(EVT_LEFT_DOWN);
 use Wx::Event qw(EVT_MOTION);
 
+## Takes in array of Bio::Tree::Tree objects
 sub new {
-	my ($class,$parent,$x,$y,$taxonomy,$title) = @_;
+	my ($class,$parent,$x,$y,$trees,$title) = @_;
 	my $self = $class->SUPER::new($parent,-1);
-	$self->{Taxonomy} = $taxonomy;
+	$self->{Trees} = $trees;
+	$self->{NodeToTree} = ();
 	$self->{Title} = $title;
 	$self->{Labels} = 1;
-	$self->{NodeLabels} = ();
-	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
-		$self->{NodeLabels}{$node} = 1;
-	}
 	$self->SetBackgroundColour(wxWHITE);
 	$self->{Colors} = (); # actually pens
 	$self->{SelectedNode} = undef;
 	$self->{Offset} = 400;
+	$self->SetTreeColors();
+	$self->MergeTrees();
 	$self->getCoordinates();
-	
+	bless $self,$class;
 	EVT_PAINT($self,\&OnPaint);
 	EVT_SIZE($self,\&OnSize);
 	EVT_LEFT_DOWN($self,\&GetClickedCoordinates);
 
 	bless $self,$class;
 	return $self;
+}
+
+sub MasterHasNode {
+	my ($self,$node) = @_;
+	my $parent = 0;
+	my $is_found = 0;
+	for my $mnode($self->{MasterTree}->get_nodes) {
+		next if not defined $mnode->ancestor();
+		if ($mnode->id eq $node->id) {
+			$is_found = 1;
+		}
+		if ($mnode->ancestor()->id eq $node->ancestor()->id) {
+			$parent = $mnode->ancestor();
+		}
+	}
+	if ($is_found == 0 and $parent != 0) {
+		return $parent;
+	}
+	return 0;
+}
+
+# a work in progress. Needs to take into case where trees have no common node.
+sub FindHighestRoot {
+	my ($self) = @_;
+	my $highest_tree;
+	for my $tree(@{$self->{Trees}}) {
+		if (not defined $highest_tree) {
+			$highest_tree = $tree;
+			next;
+		}
+		my $current_root = $tree->get_root_node;
+		my $temp = $highest_tree->get_root_node;
+		while (defined $temp->ancestor) {
+			if ($temp->ancestor()->id eq $current_root->id) {
+				$highest_tree = $tree;
+			}
+		}
+	}
+	
+	## Initialize MasterTree
+	$self->{MasterTree} = new Bio::Tree::Tree(-root => $highest_tree->get_root_node);
+	for my $node($self->{MasterTree}->get_nodes) {
+		$self->{NodeIDToTree}{$node->id} = [$highest_tree];
+	}
+		
+	return $highest_tree;
+}
+
+sub MergeTrees {
+	my ($self) = @_;
+	my $highest_tree = $self->FindHighestRoot();
+	for my $tree(@{$self->{Trees}}) {
+		next if $tree eq $highest_tree;
+		for my $node($tree->get_nodes('depth')) {
+			next if not defined $node->ancestor;
+			my $search = $self->MasterHasNode($node);
+			if ($search != 0) {
+				$search->add_Descendent($node,1);
+			}
+			push(@{$self->{NodeIDToTree}{$node->id}},$tree);
+		}
+	}
+	
+	$self->{NodeLabels} = ();
+	for my $node($self->{MasterTree}->get_nodes('breadth')) {
+		$self->{NodeLabels}{$node} = 1;
+	}
 }
 
 sub OnPaint {
@@ -61,7 +129,7 @@ sub GetClickedCoordinates {
 	my $x = $event->GetPosition()->x - $width/2;
 	my $y = $height/2 - $event->GetPosition()->y;
 	
-	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
+	for my $node($self->{MasterTree}->get_nodes('breadth')) {
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		my $distance = sqrt(($x-$coords[0])**2 + ($y-$coords[1])**2);
 		if ( $distance < 3.0) {
@@ -128,18 +196,19 @@ sub draw {
 	
 	$dc->DrawRectangle(0,0,$width,$height);
 
-	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
+	for my $node($self->{MasterTree}->get_nodes('breadth')) {
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		my @pcoords = @{$self->{vertex_to_coords}{$node->ancestor()}};
-		if (defined $self->{Colors}{$self->GetDepth($node)}) {
-			$dc->SetPen($self->{Colors}{$self->GetDepth($node)});
+		my $cnode_to_tree = $self->{NodeIDToTree}{$node->id};
+		if (@$cnode_to_tree == 1) {
+			$dc->SetPen($self->{Colors}{$self->{NodeIDToTree}{$node->id}->[0]});
 		}
 		else {
-			$dc->SetPen($self->SetLevelColor($self->GetDepth($node)));
+			$dc->SetPen(Wx::Pen->new(Wx::Colour->new(150,150,150),2,wxSOLID));	
 		}
 		$dc->DrawLine($coords[0]+$width/2,-$coords[1]+$height/2,$pcoords[0]+$width/2,-$pcoords[1]+$height/2);
 	}
-	for my $node($self->{Taxonomy}->get_nodes('breadth')) {
+	for my $node($self->{MasterTree}->get_nodes('breadth')) {
 		$dc->SetBrush(wxBLACK_BRUSH);
 		$dc->SetPen(wxBLACK_PEN);
 		my @coords = @{$self->{vertex_to_coords}{$node}};
@@ -187,6 +256,17 @@ sub DrawTitle {
 	
 }
 
+sub SetTreeColors {
+	my ($self) = @_;
+	for my $tree(@{$self->{Trees}}) {
+		my $r = rand(255);
+		my $g = rand(255);
+		my $b = rand(255);
+		my $pen = Wx::Pen->new(Wx::Colour->new($r,$g,$b),2,wxSOLID);
+		$self->{Colors}{$tree} = $pen; 
+	}
+}
+
 sub SetLevelColor {
 	my ($self,$level) = @_;
 	my $r = rand(255);
@@ -219,14 +299,14 @@ sub getCoordinates {
 sub circular_tree {
 	my ($self) = @_;
 	$self->{i} = 0;
-	for my $node($self->{Taxonomy}->get_nodes) {
+	for my $node($self->{MasterTree}->get_nodes) {
 		if ($node->each_Descendent == 0) {
 			$self->{numLeaves}++;
 		}
 	}
 	
-	$self->postorder_traversal($self->{Taxonomy}->get_root_node());
-	$self->preorder_traversal($self->{Taxonomy}->get_root_node());
+	$self->postorder_traversal($self->{MasterTree}->get_root_node());
+	$self->preorder_traversal($self->{MasterTree}->get_root_node());
 }
 
 sub postorder_traversal {
@@ -253,7 +333,7 @@ sub postorder_traversal {
 			$tprime->[0] = $tprime->[0] + ((1/($degree-1))/$S)*$self->{vertex_to_offset}{$child}->[0];
 			$tprime->[1] = $tprime->[1] + ((1/($degree-1))/$S)*$self->{vertex_to_offset}{$child}->[1];
 		}
-		if ($node eq $self->{Taxonomy}->get_root_node) {
+		if ($node eq $self->{MasterTree}->get_root_node) {
 			$self->{vertex_to_coeff}{$node} = [1/($S*(1-$t)),1/($S*(1-$t))];
 		}
 		$self->{vertex_to_offset}{$node} = [$tprime->[0]/(1-$t->[0]),$tprime->[1]/(1-$t->[1])];
@@ -262,7 +342,7 @@ sub postorder_traversal {
 
 sub preorder_traversal {
 	my ($self,$node) = @_;
-	if ($node eq $self->{Taxonomy}->get_root_node) {
+	if ($node eq $self->{MasterTree}->get_root_node) {
 		$self->{vertex_to_coords}{$node} = [0,0];
 	}
 	else {
@@ -283,10 +363,10 @@ use Wx qw /:everything/;
 use Wx::Event qw(EVT_MENU);
 
 sub new {
-	my ($class,$tree,$title) = @_;
+	my ($class,$trees,$title) = @_;
 	my $self = $class->SUPER::new(undef,-1,"",[-1,-1],[1000,1000]);
 	$self->TopMenu();
-	$self->{TaxView} = TaxonomyPanel->new($self,-1,-1,$tree,$title);
+	$self->{TaxView} = TaxonomyPanel->new($self,-1,-1,$trees,$title);
 	$self->Show;
 	return $self;
 }
@@ -341,7 +421,7 @@ sub Switch {
 sub Labels {
 	my ($self) = @_;
 	$self->{TaxView}->{Labels} *= -1;
-	for my $node($self->{TaxView}{Taxonomy}->get_nodes('breadth')) {
+	for my $node($self->{TaxView}->{MasterTree}->get_nodes('breadth')) {
 		$self->{TaxView}->{NodeLabels}{$node} = $self->{TaxView}->{Labels};
 	}
 	$self->{TaxView}->OnSize(0);

@@ -1,3 +1,4 @@
+use Wx::Perl::Packager;
 use Wx;
 
 my $turq = Wx::Colour->new("TURQUOISE");
