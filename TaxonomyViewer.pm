@@ -32,8 +32,6 @@ sub new {
 	EVT_PAINT($self,\&OnPaint);
 	EVT_SIZE($self,\&OnSize);
 	EVT_LEFT_DOWN($self,\&GetClickedCoordinates);
-
-	bless $self,$class;
 	return $self;
 }
 
@@ -199,14 +197,18 @@ sub draw {
 	for my $node($self->{MasterTree}->get_nodes('breadth')) {
 		my @coords = @{$self->{vertex_to_coords}{$node}};
 		my @pcoords = @{$self->{vertex_to_coords}{$node->ancestor()}};
-		my $cnode_to_tree = $self->{NodeIDToTree}{$node->id};
-		if (@$cnode_to_tree == 1) {
-			$dc->SetPen($self->{Colors}{$self->{NodeIDToTree}{$node->id}->[0]});
+		my $trees = $self->{NodeIDToTree}{$node->id};
+		if (@$trees == 1) {
+			$dc->SetPen($self->{Colors}{$trees->[0]});
+			$dc->DrawLine($coords[0]+$width/2,-$coords[1]+$height/2,$pcoords[0]+$width/2,-$pcoords[1]+$height/2);
 		}
 		else {
-			$dc->SetPen(Wx::Pen->new(Wx::Colour->new(150,150,150),2,wxSOLID));	
+			for (my $i = 0; $i < @$trees; $i++) {
+				my $c = $i - @$trees/2;
+				$dc->SetPen($self->{Colors}{$trees->[$i]});
+				$dc->DrawLine($coords[0]+$width/2 + $c,-$coords[1]+$height/2 + $c,$pcoords[0]+$width/2 + $c,-$pcoords[1]+$height/2 + $c);
+			}	
 		}
-		$dc->DrawLine($coords[0]+$width/2,-$coords[1]+$height/2,$pcoords[0]+$width/2,-$pcoords[1]+$height/2);
 	}
 	for my $node($self->{MasterTree}->get_nodes('breadth')) {
 		$dc->SetBrush(wxBLACK_BRUSH);
@@ -258,6 +260,7 @@ sub DrawTitle {
 
 sub SetTreeColors {
 	my ($self) = @_;
+	$self->{Colors} = ();
 	for my $tree(@{$self->{Trees}}) {
 		my $r = rand(255);
 		my $g = rand(255);
@@ -414,7 +417,7 @@ sub Export {
 
 sub Switch {
 	my ($self) = @_;
-	$self->{TaxView}->{Colors} = ();
+	$self->{TaxView}->SetTreeColors();
 	$self->{TaxView}->OnSize(0);
 }
 

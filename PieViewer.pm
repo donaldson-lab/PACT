@@ -529,23 +529,31 @@ sub LoadDialog {
 	my $framesizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $textsizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $label = Wx::StaticText->new($loadpanel,-1,"Name:");
+	my $label = Wx::StaticBox->new($loadpanel,-1,"Name:");
+	my $label_sizer = Wx::StaticBoxSizer->new($label, wxVERTICAL);
 	my $text = Wx::ListBox->new($loadpanel,-1,wxDefaultPosition,wxDefaultSize,[],wxEXPAND);
-	$textsizer->Add($label,1,wxLEFT|wxCENTER|wxRIGHT,10);
-	$textsizer->Add($text,3,wxLEFT|wxCENTER|wxRIGHT,10);
+	$label_sizer->Add($text,1,wxCENTER|wxEXPAND);
+	$textsizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxLEFT);
+	$textsizer->Add($label_sizer,4,wxCENTER|wxEXPAND);
+	$textsizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxRIGHT);
 	
 	opendir(DIR,$self->{Control}->{ColorPrefs});
 	my @files = readdir(DIR);
 	for my $file(@files) {
 		if ($file =~ /.db/g) {
+			$file =~ s/.db//;
 			$text->InsertItems([$file],0);
 		}
 	}
 	closedir DIR;
 	
+	my $enter_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $enter_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	my $enter = Wx::Button->new($loadpanel,-1,"Enter");
-	$framesizer->Add($textsizer,2,wxCENTER);
-	$framesizer->Add($enter,1,wxCENTER);
+	$enter_sizer_v->Add($enter,1,wxCENTER);
+	$enter_sizer_h->Add($enter_sizer_v,1,wxCENTER);
+	$framesizer->Add($textsizer,4,wxCENTER|wxEXPAND);
+	$framesizer->Add($enter_sizer_h,1,wxCENTER);
 	
 	EVT_BUTTON($loadpanel,$enter,sub{$self->LoadColors($loadframe,$text->GetString($text->GetSelection))});
 	$loadpanel->SetSizer($framesizer);
@@ -557,7 +565,7 @@ sub LoadColors {
 	my ($self,$loadframe,$loadname) = @_;
 	$loadname =~s/.db//g;
 	chdir($self->{Control}->{ColorPrefs});
-	dbmopen(my %COLOR,$loadname,0644) or die "Cannot open color_pref: $!";
+	tie(my %COLOR,'DB_File',$loadname . ".db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	%colors = ();
 	for my $key(keys(%COLOR)) {
 		my @color_array = split(/;/,$COLOR{$key});

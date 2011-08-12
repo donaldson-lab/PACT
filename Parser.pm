@@ -4,12 +4,12 @@ Parser
 
 =head1 SYNOPSIS
 
-my $fasta_parser = FASTAParser->new();
-my $blast_parser = BlastParser->new();
+Not to be used directly.
 
 =head1 DESCRIPTION
 
 This is a base class for parsing sequence similarity search output files.
+Add processes (see below) which each have a HitRoutine to handle BLAST query result. 
 
 =cut
 
@@ -17,9 +17,112 @@ use strict;
 
 package Parser;
 
+sub new {
+     
+     my ($class,$name,$internal_directory) = @_;
+     
+     my $self = {
+     	SequenceFile =>  undef,
+     	InternalDirectory => $internal_directory,
+     	In => undef, # The bioperl SerachIO object
+     	SequenceMemory => undef,
+     	Name => $name,
+     	DoneParsing => 0,
+     	NumSeqs => 0,
+	 };
+	 $self->{Processes} = ();
+     bless($self,$class);
+     return $self;
+
+}
+
+## Needs to be split.
+sub SetSequences {
+	my ($self,$fasta_name) = @_;
+	if (-e $fasta_name and $fasta_name ne "") {
+		my $inFasta = Bio::SeqIO->new(-file => $fasta_name , '-format' => 'Fasta');
+		while ( my $seq = $inFasta->next_seq) {
+	    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
+		}
+		$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
+		$self->{SequenceFile} = $fasta_name;
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+sub AddProcess {
+	my ($self,$process) = @_;
+	push(@{$self->{Processes}},$process);
+}
+
+
+=head1 NAME
+
+FASTAParser
+
+=head1 SYNOPSIS
+
+my $fasta_parser = FASTAParser->new();
+
+=head1 DESCRIPTION
+
+Will be similar to BlastParser. Coming soon.
+
+=cut
+
 package FASTAParser;
 use Bio::SearchIO;
 use Bio::SeqIO;
+
+sub SetFASTAFile {
+	my ($self,$fasta_path) = @_;
+	$self->{FastaFile} = $fasta_path;
+	$self->{FastaIn} = Bio::SearchIO->new(-format => 'fasta', -file  => $fasta_path);
+}
+
+sub Parse {
+	
+	my ($self,$progress_dialog) = @_;
+	
+	my $count = 0;
+	
+	while( my $result = $self->{FastaIn}->next_result) {
+		$count++;
+		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
+		$progress_dialog->Update($progress_ratio);
+
+		for my $process(@{$self->{Processes}}) {
+			#$process->HitRoutine($hitdata);
+		}
+		
+	}
+	
+	$progress_dialog->Update(99,"Saving ...");
+	for my $process(@{$self->{Processes}}) {
+		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
+	}
+	for my $process(@{$self->{Processes}}) {
+		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
+	}
+	$progress_dialog->Update(100);
+}
+
+=head1 NAME
+
+Parser
+
+=head1 SYNOPSIS
+
+my $blast_parser = BlastParser->new();
+
+=head1 DESCRIPTION
+
+This is a base class for parsing sequence similarity search output files.
+
+=cut
 
 package BlastParser;
 use Bio::SearchIO;
@@ -33,11 +136,11 @@ sub new {
      
      my $self = {
      	BlastFile => undef,
-     	FastaFile =>  undef,
+     	SequenceFile =>  undef,
      	InternalDirectory => $internal_directory,
      	In => undef,
-     	FastaMemory => undef,
-     	HasTaxonomy => 0,
+     	SequenceMemory => undef,
+     	HasTaxonomy => 0, # to be deprecated ?
      	Name => $name,
      	DoneParsing => 0,
      	NumSeqs => 0,
@@ -76,15 +179,15 @@ sub SetBlastFile {
 }
 
 ## Needs to be split.
-sub SetFastaFile {
+sub SetSequences {
 	my ($self,$fasta_name) = @_;
 	if (-e $fasta_name and $fasta_name ne "") {
 		my $inFasta = Bio::SeqIO->new(-file => $fasta_name , '-format' => 'Fasta');
 		while ( my $seq = $inFasta->next_seq) {
-	    	$self->{FastaMemory}{$seq->id} = $seq->seq;
+	    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
 		}
-		$self->{NumSeqs} = keys(%{$self->{FastaMemory}});
-		$self->{FastaFile} = $fasta_name;
+		$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
+		$self->{SequenceFile} = $fasta_name;
 		return 1;
 	}
 	else {
@@ -137,7 +240,7 @@ sub HitData {
     my $hlength = $hit->length;
 	
 	
-	my $sequence = $self->{FastaMemory}{$result->query_name};
+	my $sequence = $self->{SequenceMemory}{$result->query_name};
 	
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
@@ -145,7 +248,7 @@ sub HitData {
 sub NoHits {
 	my ($self,$query_name) = @_;
 	
-	my $sequence = $self->{FastaMemory}{$query_name};
+	my $sequence = $self->{SequenceMemory}{$query_name};
 	
 	chdir($self->{InternalDirectory});
 	open(NOHITSFASTA, '>>' . "NoHits.fasta");
@@ -203,6 +306,20 @@ sub Parse {
 	$progress_dialog->Update(100);
 }
 
+=head1 NAME
+
+Process
+
+=head1 SYNOPSIS
+
+Do not use directly.
+
+=head1 DESCRIPTION
+
+This is a base class for all objects taking a Parser query result one at a time while parsing.
+
+=cut
+
 package Process;
 
 sub new {
@@ -210,9 +327,9 @@ sub new {
      my ($class,$control) = @_;
      
      my $self = {
-     	Data => undef,
-     	IdToName => undef,
-     	Control => $control
+     	Data => undef, # Usually Id to total number found for that value.
+     	IdToName => undef, # Sequence Id to short name
+     	Control => $control # parent ProgramControl (same object as in Display.pl)
 	 };
      
      bless($self,$class);
@@ -223,10 +340,12 @@ sub PrintSummaryText {
 	my ($self,$dir) = @_;
 }
 
+# For specifics on hitdata, see HitData in Parser (above)
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
 }
 
+# increment the $self->{Data} hash
 sub AddData {
 	my ($self,$id,$name) = @_;
 	if (not defined $self->{Data}{$id}) {
@@ -242,16 +361,35 @@ sub EndRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
 }
 
+# Save internally the values and structures obtained.
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
 }
+
+=head1 NAME
+
+TextPrinter
+
+=head1 SYNOPSIS
+
+my $printer = TextPrinter->new($output_path,$control);
+
+=head1 DESCRIPTION
+
+This is for printing parser results to a specified folder.  Each unique hit
+will have a folder with a FASTA file containing those hits and a corresponding
+text file containing information on each query. There is also a FASTA file containing
+all queries that did not produce any hit alignments, and a Stats text file
+showing the number found for each hit name. This is also a base class for TaxonomyTextPrinter.
+
+=cut
 
 package TextPrinter;
 use base ("Process");
 use File::Copy;
 
 sub new {
-	 my ($class,$dir,$control) = @_;
+	 my ($class,$dir,$control) = @_; # $dir is the path where all output ends up.
      my $self = $class->SUPER::new($control);
      
      $self->{OutputDirectory} = $dir; # Parent directory in which local output directory will be printed.
@@ -363,7 +501,7 @@ sub EndRoutine {
 
 sub NoHitsFolder {
 	my ($self,$parser_name,$parser_directory) = @_;
-	# Needs: cleaning up header files and stats file
+	# Needs: cleaning up header files
 	chdir($self->{OutputDirectory});
 	$self->{NoHits} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "NoHits";
 	mkdir($self->{NoHits});
@@ -867,6 +1005,7 @@ sub new {
      my $self = $class->SUPER::new($control);
      
      $self->{TableName} = $parser_name;
+     $self->{GIs} = (); # Hash of gi numbers as primary keys for HitInfo
 	 $self->{QueryInfo} = $self->{TableName} . "_QueryInfo";
 	 $self->{AllHits} = $self->{TableName} . "_AllHits";
 	 $self->{HitInfo} = $self->{TableName} . "_HitInfo";
@@ -879,9 +1018,9 @@ sub new {
 	 
 	 
 	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
-	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{AllHits} .  "(query TEXT,rank INTEGER,hitname TEXT,percent REAL,bit REAL,
+	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{AllHits} .  "(query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER)");
-     $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{HitInfo} .  "(hitname TEXT,gi INTEGER,description TEXT,hlength INTEGER)");
+     $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{HitInfo} .  "(gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
      bless($self,$class);
      return $self;
 
@@ -905,13 +1044,15 @@ sub HitRoutine {
 	my $startq = $hitdata->[12];
 	my $endq = $hitdata->[13];
 	my $hlength = $hitdata->[14];
-	
     
     $self->{Control}->{Connection}->do("INSERT INTO " . $self->{QueryInfo} . "(query,qlength,sequence) VALUES(?,?,?)",undef,($query,$qlength,$sequence));
-    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{AllHits} . "(query,rank,hitname,percent,bit,evalue,starth,endh,startq,endq) 
-    VALUES(?,?,?,?,?,?,?,?,?,?)",undef,($query,$rank,$hitname,$percid,$bit,$evalue,$starth,$endh,$startq,$endq));
-    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{HitInfo} . "(hitname,gi,description,hlength) 
-    VALUES(?,?,?,?)",undef,($hitname,$gi,$descr,$hlength));
+    $self->{Control}->{Connection}->do("INSERT INTO " . $self->{AllHits} . "(query,gi,rank,percent,bit,evalue,starth,endh,startq,endq) 
+    VALUES(?,?,?,?,?,?,?,?,?,?)",undef,($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq));
+    if (not defined $self->{GIs}{$gi}) {
+    	$self->{Control}->{Connection}->do("INSERT INTO " . $self->{HitInfo} . "(gi,description,hitname,hlength) 
+    VALUES(?,?,?,?)",undef,($gi,$descr,$hitname,$hlength));
+    $self->{GIs}{$gi} = 1;
+    }
 }
 
 package ClassificationXML;

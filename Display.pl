@@ -69,13 +69,13 @@ sub CreateResultFolder {
 
 sub ParserNames {
 	my ($self) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 }
 
 sub AddParserName {
 	my ($self,$parser_name) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	# Assigns a unique identifier to a parser name. the identifier will be used as a Result folder name/ database table name.
 	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	my $name_key = $self->GenerateResultKey();
@@ -88,28 +88,37 @@ sub AddParserName {
 
 sub GetParserName {
 	my ($self,$key) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	$PARSERNAMES{$key};
 }
 
 sub GetParserNames {
 	my ($self) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	return \%PARSERNAMES;
 }
 
+sub AddResultsBox {
+	my ($self,$box) = @_;
+	chdir($self->{Results});
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	while ( my ($key, $value) = each(%TABLENAMES) ) {
+		$box->AddFile($key,$value);
+	}
+}
+
 sub AddTableName {
 	my ($self,$label,$key) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 	$TABLENAMES{$key} = $label;
 }
 
 sub GetTableNames {
 	my ($self) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 	return \%TABLENAMES;
 }
@@ -284,7 +293,7 @@ sub MakeColorPrefsFolder {
 
 sub CreateDatabase {
 	my ($self) = @_;
-	chdir($self->{CurrentDirectory});
+	chdir($self->{Results});
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 }
@@ -1346,20 +1355,112 @@ sub OutputMenu {
 	return $add_panel;
 }
 
+package QueryTextDisplay;
+
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_SIZE);
+use Wx::Event qw(EVT_PAINT);
+use Wx::Html;
+use base 'Wx::Panel';
+
+sub new {
+	my ($class,$parent) = @_;
+	my $self = $class->SUPER::new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$self->{Query} = "";
+	$self->{GI} = "";
+	$self->{Description} = "";
+	$self->{HLength} = "";
+	$self->{QLength} = "";
+	$self->{QStart} = "";
+	$self->{QEnd} = "";
+	$self->{HStart} = "";
+	$self->{HEnd} = "";
+	$self->{Bitmap} = Wx::Bitmap->new(1,1,-1);
+	$self->SetBackgroundColour(wxWHITE);
+	EVT_PAINT($self,\&OnPaint);
+	EVT_SIZE($self,\&OnSize);
+	return $self;
+}
+
+sub OnPaint {
+	my ($self,$event) = @_;
+	if ($self->{Query} eq "") {
+		return 0;
+	}
+	my $dc = Wx::PaintDC->new($self);
+	$dc->DrawBitmap($self->{Bitmap},0,0,1);
+}
+
+sub OnSize {
+	my ($self,$event) = @_;
+	if ($self->{Query} eq "") {
+		return 0;
+	}
+	my $size = $self->GetClientSize();
+	my $width = $size->GetWidth();
+	my $height = $size->GetHeight();
+	$self->{Bitmap} = Wx::Bitmap->new($width,$height,-1);
+	my $memory = Wx::MemoryDC->new();
+	$memory->SelectObject($self->{Bitmap});
+	$self->DisplayTextInfo($memory);
+}
+
+sub SetQuery {
+	my ($self,$query,$gi,$descr,$hlength,$qlength,$qstart,$qend,$hstart,$hend) = @_;
+	$self->{Query} = "$query";
+	$self->{GI} = "$gi";
+	$self->{Description} = "$descr";
+	$self->{HLength} = "$hlength";
+	$self->{QLength} = "$qlength";
+	$self->{QStart} = "$qstart";
+	$self->{QEnd} = "$qend";
+	$self->{HStart} = "$hstart";
+	$self->{HEnd} = "$hend";
+	$self->OnSize(0);
+}
+
+sub DisplayTextInfo {
+	my ($self,$dc) = @_;
+	my $renderer = Wx::HtmlDCRenderer->new();
+	my $size = $self->GetClientSize();
+	my $width = $size->GetWidth();
+	my $height = $size->GetHeight();
+	$renderer->SetDC($dc);
+	$renderer->SetSize($width,$height/2);
+	$renderer->SetHtmlText("
+	<html>
+  	<head>
+    <title></title>
+  	</head>
+  	<body>
+    <h1>$self->{Query}</h1>
+    <br>
+    <p>Full Description: $self->{Description}</p>
+    <p>Accession Number: $self->{GI}</p>
+  	</body>
+	</html>");
+	$renderer->Render(1,1,[]);
+	
+	$self->Refresh;
+	$self->Layout;
+}
+
 package TableMenu;
 
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_LIST_ITEM_SELECTED);
 use Wx::Event qw(EVT_LIST_ITEM_ACTIVATED);
 use Wx::Event qw(EVT_LISTBOX);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+use Wx::Event qw(EVT_BUTTON);
 use Wx::Event qw(EVT_LIST_COL_CLICK);
+use Wx::Event qw(EVT_SIZE);
 use base 'Wx::Panel';
 
 sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($turq);
 	$self->{ResultListBox} = undef;
 	$self->{ResultHitListCtrl} = undef;
 	$self->{ResultQueryListCtrl} = undef;
@@ -1372,103 +1473,159 @@ sub new {
 
 sub MainDisplay {
 	my ($self) = @_;
+	
+	$self->DestroyChildren;
+	$self->Refresh;
 	$self->SetBackgroundColour($turq);
 	
-	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-		
-	my $splitter = Wx::SplitterWindow->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSP_3D);
-
-	$self->{LeftPanel} = Wx::Panel->new($splitter,-1);
-	$self->{LeftPanel}->SetBackgroundColour($turq);
-	my $leftsizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $qtextsizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $queuetext = Wx::StaticText->new($self->{LeftPanel},-1,"Choose Result");
-	$qtextsizer->Add($queuetext,1,wxCENTER);
+	my $leftpanelsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $listsizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{ResultListBox} = FileBox->new($self->{LeftPanel});
-	$listsizer->Add($self->{ResultListBox}->{ListBox},1,wxEXPAND);
-	$self->FillResultMenu();
+	my $leftsizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	$leftsizer->Add($qtextsizer,1,wxCENTER,wxEXPAND);
-	$leftsizer->Add($listsizer,15,wxEXPAND);
+	my $queuetext = Wx::StaticBox->new($self,-1,"Choose Result");
+	my $qtextsizer = Wx::StaticBoxSizer->new($queuetext,wxVERTICAL);
+	$self->{ResultListBox} = FileBox->new($self);
+	$qtextsizer->Add($self->{ResultListBox}->{ListBox},1,wxEXPAND);
+	$control->AddResultsBox($self->{ResultListBox});
 	
-	$self->{LeftPanel}->SetSizer($leftsizer);
-	$self->{LeftPanel}->Layout;
-
-	$self->{RightPanel} = Wx::Panel->new($splitter,-1);
-	$self->{RightPanel}->SetBackgroundColour($turq);
-	my $view_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $add_button = Wx::Button->new($self,-1,"Add");
+	$add_sizer_v->Add($add_button,1,wxCENTER);
+	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
 	
-	$self->{ResultHitListCtrl} = Wx::ListCtrl->new($self->{RightPanel},-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
-	$self->{ResultHitListCtrl}->InsertColumn(0,"Hit Name");
-	$self->{ResultHitListCtrl}->InsertColumn(1,"Count");
-	$self->{ResultHitListCtrl}->InsertColumn(2,"Hit Description");
+	my $comparetext = Wx::StaticBox->new($self,-1,"Result(s) to View");
+	my $comparesizer = Wx::StaticBoxSizer->new($comparetext,wxVERTICAL);
+	$self->{CompareListBox} = FileBox->new($self);
+	$comparesizer->Add($self->{CompareListBox}->{ListBox},1,wxEXPAND);
 	
-	$self->{ResultQueryListCtrl} = Wx::ListCtrl->new($self->{RightPanel},-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
-	$self->{ResultQueryListCtrl}->InsertColumn(0,"Query");
-	$self->{ResultQueryListCtrl}->InsertColumn(1,"Rank");
-	$self->{ResultQueryListCtrl}->InsertColumn(2,"Query Length");
-	$self->{QueryColumnHash}{2} = "qlength"; 
-	$self->{ResultQueryListCtrl}->InsertColumn(3,"Percent Id");
-	$self->{ResultQueryListCtrl}->InsertColumn(4,"Bit Score");
-	$self->{ResultQueryListCtrl}->InsertColumn(5,"E-Value");
-	$self->{ResultQueryListCtrl}->InsertColumn(6,"Hit Start");
-	$self->{ResultQueryListCtrl}->InsertColumn(7,"Hit End");
-	$self->{ResultQueryListCtrl}->InsertColumn(8,"Query Start");
-	$self->{ResultQueryListCtrl}->InsertColumn(9,"Query End");
+	$leftsizer->Add($qtextsizer,4,wxEXPAND);
+	$leftsizer->Add($add_sizer_h,1,wxCENTER);
+	$leftsizer->Add($comparesizer,4,wxEXPAND);
 	
-	$view_sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
-	$view_sizer->Add($self->{ResultQueryListCtrl},1,wxEXPAND);
-	$self->{RightPanel}->SetSizer($view_sizer);
-	$self->{RightPanel}->Layout;
+	my $paramsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $parent = $self->GetParent();
-	while (defined $parent->GetParent) {
-		$parent = $parent->GetParent;
-	}
+	my $choice_wrap = Wx::BoxSizer->new(wxVERTICAL);
+	$choice_wrap->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxEXPAND);
+	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
 	
-	my $splitsize = ($parent->GetSize()->width)/4;
-	$splitter->SplitVertically($self->{LeftPanel},$self->{RightPanel},$splitsize);
-
-	$sizer->Add($splitter,1,wxEXPAND);
-	$self->SetSizer($sizer);
+	my $bit_label = Wx::StaticText->new($self,-1,"Bit Score:");
+	$choice_sizer->Add($bit_label,1,wxCENTER);
+	$self->{BitTextBox} = Wx::TextCtrl->new($self,-1,'40.0');
+	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
+	
+	my $e_label = Wx::StaticText->new($self,-1,"E-value:");
+	$choice_sizer->Add($e_label,1,wxCENTER);
+	$self->{EValueTextBox} = Wx::TextCtrl->new($self,-1,'0.001');
+	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
+	$choice_wrap->Add($choice_sizer,3,wxCENTER);
+	
+	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $view_button = Wx::Button->new($self,-1,"View");
+	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetFile)});
+	$view_sizer_v->Add($view_button,1,wxCENTER);
+	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
+	$choice_wrap->Add($view_sizer_h,1,wxCENTER);
+	
+	$paramsizer->Add($choice_wrap,1,wxCENTER);
+	
+	$leftpanelsizer->Add($leftsizer,1,wxEXPAND);
+	$leftpanelsizer->Add($paramsizer,1,wxEXPAND);
+	
+	$self->SetSizer($leftpanelsizer);
 	$self->Layout;
+	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
+	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
 }
 
-sub FillResultMenu {
+sub DisplayTable {
+	my ($self,$table_name) = @_;
+	
+	$self->{CurrentQueryInfo} = $table_name . "_QueryInfo";
+	$self->{CurrentHitInfo} = $table_name . "_HitInfo";
+	$self->{CurrentAllHits} = $table_name . "_AllHits";
+	
+	$self->DestroyChildren;
+	$self->SetBackgroundColour(wxWHITE);
+	$self->Refresh;
+	
+	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $rightsizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	#my $hit_panel = Wx::Panel->new($self,-1);	
+	$self->{ResultHitListCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
+	$self->{ResultHitListCtrl}->InsertColumn(0,"Hit Name");
+	$self->{ResultHitListCtrl}->InsertColumn(1,"Count");
+	
+	#my $query_panel = Wx::Panel->new($self,-1);
+	$self->{ResultQueryListCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
+	$self->{ResultQueryListCtrl}->InsertColumn(0,"Query");
+	$self->{ResultQueryListCtrl}->InsertColumn(1,"Rank");
+	$self->{ResultQueryListCtrl}->InsertColumn(2,"E-Value");
+	$self->{ResultQueryListCtrl}->InsertColumn(3,"Bit Score");
+	$self->{ResultQueryListCtrl}->InsertColumn(4,"Percent Id");
+	
+	$self->{InfoPanel} = QueryTextDisplay->new($self);
+	
+	$rightsizer->Add($self->{ResultQueryListCtrl},1,wxEXPAND);
+	$rightsizer->Add($self->{InfoPanel},1,wxEXPAND);
+	
+	$sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
+	$sizer->Add($rightsizer,3,wxEXPAND);
+	$self->DisplayHits($table_name);
+	$self->SetSizer($sizer);
+	$self->{InfoPanel}->Layout;
+	$self->Layout;
+	$self->OnSize(0);
+	EVT_SIZE($self,\&OnSize);
+}
+
+sub DeleteCompareResult {
 	my ($self) = @_;
-	chdir($control->{CurrentDirectory});
-	dbmopen(my %TABLENAMES,"TABLENAMES.db",0644) or die "Cannot open ParserNames: $!";
-	while ( my ($key, $value) = each(%TABLENAMES) ) {
-		$self->{ResultListBox}->AddFile($key,$value);
+	my $delete_dialog = OkDialog->new($self,"Delete","Remove Result?");
+	if ($delete_dialog->ShowModal == wxID_OK) {
+		$self->{CompareListBox}->DeleteFile;
 	}
-	EVT_LISTBOX($self->{LeftPanel},$self->{ResultListBox}->{ListBox},sub{$self->DisplayHits($self->{ResultListBox}->GetFile)});
+	$delete_dialog->Destroy;
+}
+
+sub CompareTables {
+	my ($self,$tables) = @_;
+	
 }
 
 my %hmap = ();
 my $hcol = 0;
-my %hcolstate = (0=>-1,1=>-1,2=>-1);
+my %hcolstate = (0=>-1,1=>-1);
 
 sub DisplayHits {
-	my ($self,$table_name) = @_;
-	$self->{CurrentTableName} = $table_name;
+	my ($self) = @_;
+
 	$self->{ResultHitListCtrl}->DeleteAllItems;
-	my $hits = $control->{Connection}->selectall_arrayref("SELECT DISTINCT hitname FROM " . $self->{CurrentTableName} . "_HitInfo");
-	for (my $i=0; $i<@$hits; $i++) {
-		my $hitname = $hits->[$i]->[0];
+	
+	#my $test = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " LEFT OUTER JOIN " . $self->{CurrentHitInfo} .
+	#" ON " . $self->{CurrentHitInfo} . ".gi=" . $self->{CurrentAllHits} . ".gi GROUP BY hitname");
+	
+	my $hitnames = $control->{Connection}->selectall_arrayref("SELECT hitname FROM " . $self->{CurrentHitInfo} . " GROUP BY hitname");
+	my $i = 0;
+	for my $row(@$hitnames) {
+		my $hitname = $row->[0];
+		my $count = 0;
+		my $gis = $control->{Connection}->selectall_arrayref("SELECT gi FROM " . $self->{CurrentHitInfo} . " WHERE hitname=?",undef,$hitname);
+		for my $gi(@$gis) {
+			my $count_row = $control->{Connection}->selectall_arrayref("SELECT COUNT(gi) FROM " . $self->{CurrentAllHits} . " WHERE gi=?",undef,$gi->[0]);
+			$count += $count_row->[0]->[0];
+		}
 		my $item = $self->{ResultHitListCtrl}->InsertStringItem($i,"");
 		$self->{ResultHitListCtrl}->SetItemData($item,$i);
-		my $count = $control->{Connection}->selectrow_arrayref("SELECT COUNT(hitname) FROM " . $self->{CurrentTableName} . "_AllHits WHERE hitname=?",undef,$hitname);
 		$self->{ResultHitListCtrl}->SetItem($i,0,$hitname);
 		$hmap{0}{$i} = $hitname;
-		$self->{ResultHitListCtrl}->SetItem($i,1,$count->[0]);
-		$hmap{1}{$i} = $count->[0];
-		my $descr = $control->{Connection}->selectrow_arrayref("SELECT description FROM " . $self->{CurrentTableName} . "_HitInfo WHERE hitname=?",undef,$hitname);
-		$self->{ResultHitListCtrl}->SetItem($i,2,$descr->[0]);
-		$hmap{2}{$i} = $descr->[0];
+		$self->{ResultHitListCtrl}->SetItem($i,1,$count);
+		$hmap{1}{$i} = $count;
+		$i++;
 	}
-	$self->{ResultHitListCtrl}->SetColumnWidth(2,-1);
+	
 	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultHitListCtrl},\&Save);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultHitListCtrl},\&DisplayQueries);
 	EVT_LIST_COL_CLICK($self,$self->{ResultHitListCtrl},\&OnSortHit);
@@ -1476,42 +1633,63 @@ sub DisplayHits {
 
 my %qmap = ();
 my $qcol = 0;
-my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1,5=>-1,6=>-1,7=>-1,8=>-1,9=>-1);
+my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1);
 
 sub DisplayQueries {
 	my ($self,$event) = @_;
 	$self->{ResultQueryListCtrl}->DeleteAllItems;
 	my $hitname = $event->GetText;
-	my $queries = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentTableName} . "_AllHits WHERE hitname=?",undef,$hitname);
-	for (my $i=0; $i<@$queries; $i++) {
-		my $query_row = $queries->[$i];
-		my $item = $self->{ResultQueryListCtrl}->InsertStringItem($i,"Hello");
-		$self->{ResultQueryListCtrl}->SetItemData($item,$i);
-		$self->{ResultQueryListCtrl}->SetItem($i,0,$query_row->[0]);
-		$qmap{0}{$i} = $query_row->[0];
-		$self->{ResultQueryListCtrl}->SetItem($i,1,$query_row->[1]);
-		$qmap{1}{$i} = $query_row->[1];
-		my $qlength = $control->{Connection}->selectrow_arrayref("SELECT qlength FROM " . $self->{CurrentTableName} . "_QueryInfo WHERE query=?",undef,$query_row->[0]);
-		$self->{ResultQueryListCtrl}->SetItem($i,2,$qlength->[0]);
-		$qmap{2}{$i} = $qlength->[0];
-		my $hit_row = $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentTableName} . "_AllHits
-		WHERE query=? AND rank=?",undef,$query_row->[0],$query_row->[1]);
-		$self->{ResultQueryListCtrl}->SetItem($i,3,$hit_row->[3]);
-		$qmap{3}{$i} = $hit_row->[3];
-		$self->{ResultQueryListCtrl}->SetItem($i,4,$hit_row->[4]);
-		$qmap{4}{$i} = $hit_row->[4];
-		$self->{ResultQueryListCtrl}->SetItem($i,5,$hit_row->[5]);
-		$qmap{5}{$i} = $hit_row->[5];
-		$self->{ResultQueryListCtrl}->SetItem($i,6,$hit_row->[6]);
-		$qmap{6}{$i} = $hit_row->[6];
-		$self->{ResultQueryListCtrl}->SetItem($i,7,$hit_row->[7]);
-		$qmap{7}{$i} = $hit_row->[7];
-		$self->{ResultQueryListCtrl}->SetItem($i,8,$hit_row->[8]);
-		$qmap{8}{$i} = $hit_row->[8];
-		$self->{ResultQueryListCtrl}->SetItem($i,9,$hit_row->[9]);
-		$qmap{9}{$i} = $hit_row->[9];
+	my $gis = $control->{Connection}->selectall_arrayref("SELECT gi FROM " . $self->{CurrentHitInfo} . " WHERE hitname=?",undef,$hitname);
+	
+	my $count = 0;
+	for my $gi(@$gis) {
+		my $queries = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " WHERE gi=?",undef,$gi->[0]);
+		for my $query_row(@$queries) {
+			my $item = $self->{ResultQueryListCtrl}->InsertStringItem($count,"");
+			$self->{ResultQueryListCtrl}->SetItemData($item,$count);
+			$self->{ResultQueryListCtrl}->SetItem($count,0,$query_row->[0]);
+			$qmap{0}{$count} = $query_row->[0];
+			$self->{ResultQueryListCtrl}->SetItem($count,1,$query_row->[2]);
+			$qmap{1}{$count} = $query_row->[2];
+			$self->{ResultQueryListCtrl}->SetItem($count,2,$query_row->[5]);
+			$qmap{2}{$count} = $query_row->[5];
+			$self->{ResultQueryListCtrl}->SetItem($count,3,$query_row->[4]);
+			$qmap{3}{$count} = $query_row->[4];
+			$self->{ResultQueryListCtrl}->SetItem($count,4,$query_row->[3]);
+			$qmap{4}{$count} = $query_row->[3];
+			$count += 1;
+		}
 	}
 	EVT_LIST_COL_CLICK($self,$self->{ResultQueryListCtrl},\&OnSortQuery);
+	EVT_LIST_ITEM_SELECTED($self,$self->{ResultQueryListCtrl},\&BindInfoPaint);
+}
+
+sub BindInfoPaint {
+	my ($self,$event) = @_;
+	my $query = $event->GetText;
+	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq) = @{ $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " WHERE query=?",undef,$query)};
+	my ($gi,$descr,$hitname,$hlength) = @{ $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentHitInfo} . " WHERE gi=?",undef,$gi)};
+	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh);
+}
+
+# For resizing the columns of the list controls
+sub OnSize {
+	my ($self,$event) = @_;
+	my $size = $self->{ResultHitListCtrl}->GetClientSize();
+	my $width = $size->GetWidth();
+	$self->{ResultHitListCtrl}->SetColumnWidth(0,$width*2/3);
+	$self->{ResultHitListCtrl}->SetColumnWidth(1,$width/3);
+	
+	my $size = $self->{ResultQueryListCtrl}->GetClientSize();
+	my $width = $size->GetWidth();
+	$self->{ResultQueryListCtrl}->SetColumnWidth(0,$width*1/3);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(1,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(2,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(3,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(4,$width/6);
+	
+	$self->Refresh;
+	$self->Layout;
 }
 
 sub QCompare {
@@ -1782,7 +1960,7 @@ sub GenerateParser {
 	my $parser = BlastParser->new($key,$dir);
 	
 	$parser->SetBlastFile($page->{BlastFilePath});
-	$parser->SetFastaFile($page->{FastaFilePath});
+	$parser->SetSequences($page->{FastaFilePath});
 	
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
