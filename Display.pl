@@ -1523,7 +1523,6 @@ sub MainDisplay {
 	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $view_button = Wx::Button->new($self,-1,"View");
-	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetFile)});
 	$view_sizer_v->Add($view_button,1,wxCENTER);
 	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
 	$choice_wrap->Add($view_sizer_h,1,wxCENTER);
@@ -1535,16 +1534,17 @@ sub MainDisplay {
 	
 	$self->SetSizer($leftpanelsizer);
 	$self->Layout;
+	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetAllFiles)});
 	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
 	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
 }
 
 sub DisplayTable {
-	my ($self,$table_name) = @_;
+	my ($self,$table_names) = @_;
 	
-	$self->{CurrentQueryInfo} = $table_name . "_QueryInfo";
-	$self->{CurrentHitInfo} = $table_name . "_HitInfo";
-	$self->{CurrentAllHits} = $table_name . "_AllHits";
+	#$self->{CurrentQueryInfo} = $table_names->[0] . "_QueryInfo";
+	#$self->{CurrentHitInfo} = $table_names->[0] . "_HitInfo";
+	#$self->{CurrentAllHits} = $table_names->[0] . "_AllHits";
 	
 	$self->DestroyChildren;
 	$self->SetBackgroundColour(wxWHITE);
@@ -1573,7 +1573,8 @@ sub DisplayTable {
 	
 	$sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
 	$sizer->Add($rightsizer,3,wxEXPAND);
-	$self->DisplayHits($table_name);
+	#$self->DisplayHits();
+	$self->CompareTables($table_names);
 	$self->SetSizer($sizer);
 	$self->{InfoPanel}->Layout;
 	$self->Layout;
@@ -1591,8 +1592,16 @@ sub DeleteCompareResult {
 }
 
 sub CompareTables {
-	my ($self,$tables) = @_;
-	
+	my ($self,$table_names) = @_;
+	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
+	for my $table(@$table_names) {
+		my $all_hits = $table . "_AllHits";
+		my $hit_info = $table . "_HitInfo";
+		my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM " . $all_hits . " LEFT OUTER JOIN " . $hit_info .
+	" ON " . $hit_info . ".gi=" . $all_hits . ".gi");
+	}
+	$self->DisplayHits();
 }
 
 my %hmap = ();
@@ -1604,8 +1613,26 @@ sub DisplayHits {
 
 	$self->{ResultHitListCtrl}->DeleteAllItems;
 	
-	#my $test = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " LEFT OUTER JOIN " . $self->{CurrentHitInfo} .
-	#" ON " . $self->{CurrentHitInfo} . ".gi=" . $self->{CurrentAllHits} . ".gi GROUP BY hitname");
+	my $row = $control->{Connection}->selectall_arrayref("SELECT hitname,COUNT(query) FROM t GROUP BY hitname");
+
+	my $i = 0;
+	for my $item(@$row) {
+		my $hitname = $item->[0];
+		my $count = $item->[1];
+		my $item = $self->{ResultHitListCtrl}->InsertStringItem($i,"");
+		$self->{ResultHitListCtrl}->SetItemData($item,$i);
+		$self->{ResultHitListCtrl}->SetItem($i,0,$hitname);
+		$hmap{0}{$i} = $hitname;
+		$self->{ResultHitListCtrl}->SetItem($i,1,$count);
+		$hmap{1}{$i} = $count;
+		$i++;
+	}
+
+=cut	
+	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
+	my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM " . $self->{CurrentAllHits} . " LEFT OUTER JOIN " . $self->{CurrentHitInfo} .
+	" ON " . $self->{CurrentHitInfo} . ".gi=" . $self->{CurrentAllHits} . ".gi");
 	
 	my $hitnames = $control->{Connection}->selectall_arrayref("SELECT hitname FROM " . $self->{CurrentHitInfo} . " GROUP BY hitname");
 	my $i = 0;
@@ -1626,6 +1653,8 @@ sub DisplayHits {
 		$i++;
 	}
 	
+=cut
+	
 	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultHitListCtrl},\&Save);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultHitListCtrl},\&DisplayQueries);
 	EVT_LIST_COL_CLICK($self,$self->{ResultHitListCtrl},\&OnSortHit);
@@ -1639,6 +1668,27 @@ sub DisplayQueries {
 	my ($self,$event) = @_;
 	$self->{ResultQueryListCtrl}->DeleteAllItems;
 	my $hitname = $event->GetText;
+	my $hit_gis = $control->{Connection}->selectall_arrayref("SELECT * FROM t WHERE hitname=?",undef,$hitname);
+	
+	my $count = 0;
+	for my $row(@$hit_gis) {
+		my $item = $self->{ResultQueryListCtrl}->InsertStringItem($count,"");
+		$self->{ResultQueryListCtrl}->SetItemData($item,$count);
+		$self->{ResultQueryListCtrl}->SetItem($count,0,$row->[0]); #query
+		$qmap{0}{$count} = $row->[0];
+		$self->{ResultQueryListCtrl}->SetItem($count,1,$row->[2]); #rank
+		$qmap{1}{$count} = $row->[2];
+		$self->{ResultQueryListCtrl}->SetItem($count,2,$row->[5]); #e-value
+		$qmap{2}{$count} = $row->[5];
+		$self->{ResultQueryListCtrl}->SetItem($count,3,$row->[4]); #bit score
+		$qmap{3}{$count} = $row->[4];
+		$self->{ResultQueryListCtrl}->SetItem($count,4,$row->[3]); #percent identity
+		$qmap{4}{$count} = $row->[3];
+		$count += 1;
+	}
+
+
+=cut
 	my $gis = $control->{Connection}->selectall_arrayref("SELECT gi FROM " . $self->{CurrentHitInfo} . " WHERE hitname=?",undef,$hitname);
 	
 	my $count = 0;
@@ -1660,6 +1710,7 @@ sub DisplayQueries {
 			$count += 1;
 		}
 	}
+=cut
 	EVT_LIST_COL_CLICK($self,$self->{ResultQueryListCtrl},\&OnSortQuery);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultQueryListCtrl},\&BindInfoPaint);
 }
