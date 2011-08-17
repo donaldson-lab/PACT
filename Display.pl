@@ -1542,10 +1542,6 @@ sub MainDisplay {
 sub DisplayTable {
 	my ($self,$table_names) = @_;
 	
-	#$self->{CurrentQueryInfo} = $table_names->[0] . "_QueryInfo";
-	#$self->{CurrentHitInfo} = $table_names->[0] . "_HitInfo";
-	#$self->{CurrentAllHits} = $table_names->[0] . "_AllHits";
-	
 	$self->DestroyChildren;
 	$self->SetBackgroundColour(wxWHITE);
 	$self->Refresh;
@@ -1553,12 +1549,10 @@ sub DisplayTable {
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $rightsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	#my $hit_panel = Wx::Panel->new($self,-1);	
 	$self->{ResultHitListCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
 	$self->{ResultHitListCtrl}->InsertColumn(0,"Hit Name");
 	$self->{ResultHitListCtrl}->InsertColumn(1,"Count");
 	
-	#my $query_panel = Wx::Panel->new($self,-1);
 	$self->{ResultQueryListCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
 	$self->{ResultQueryListCtrl}->InsertColumn(0,"Query");
 	$self->{ResultQueryListCtrl}->InsertColumn(1,"Rank");
@@ -1573,7 +1567,7 @@ sub DisplayTable {
 	
 	$sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
 	$sizer->Add($rightsizer,3,wxEXPAND);
-	#$self->DisplayHits();
+	
 	$self->CompareTables($table_names);
 	$self->SetSizer($sizer);
 	$self->{InfoPanel}->Layout;
@@ -1598,8 +1592,15 @@ sub CompareTables {
 	for my $table(@$table_names) {
 		my $all_hits = $table . "_AllHits";
 		my $hit_info = $table . "_HitInfo";
-		my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM " . $all_hits . " LEFT OUTER JOIN " . $hit_info .
-	" ON " . $hit_info . ".gi=" . $all_hits . ".gi");
+		my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM $all_hits LEFT OUTER JOIN $hit_info ON $hit_info.gi=$all_hits.gi 
+		AND (
+		CASE (SELECT COUNT(query) FROM t WHERE t.query=$all_hits.query) WHEN 0
+		THEN
+		$all_hits.bit > 0
+		ELSE
+		$all_hits.bit >= (SELECT MAX(bit) FROM t WHERE t.query = $all_hits.query)
+		END
+		)");
 	}
 	$self->DisplayHits();
 }
@@ -1627,33 +1628,6 @@ sub DisplayHits {
 		$hmap{1}{$i} = $count;
 		$i++;
 	}
-
-=cut	
-	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
-	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
-	my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM " . $self->{CurrentAllHits} . " LEFT OUTER JOIN " . $self->{CurrentHitInfo} .
-	" ON " . $self->{CurrentHitInfo} . ".gi=" . $self->{CurrentAllHits} . ".gi");
-	
-	my $hitnames = $control->{Connection}->selectall_arrayref("SELECT hitname FROM " . $self->{CurrentHitInfo} . " GROUP BY hitname");
-	my $i = 0;
-	for my $row(@$hitnames) {
-		my $hitname = $row->[0];
-		my $count = 0;
-		my $gis = $control->{Connection}->selectall_arrayref("SELECT gi FROM " . $self->{CurrentHitInfo} . " WHERE hitname=?",undef,$hitname);
-		for my $gi(@$gis) {
-			my $count_row = $control->{Connection}->selectall_arrayref("SELECT COUNT(gi) FROM " . $self->{CurrentAllHits} . " WHERE gi=?",undef,$gi->[0]);
-			$count += $count_row->[0]->[0];
-		}
-		my $item = $self->{ResultHitListCtrl}->InsertStringItem($i,"");
-		$self->{ResultHitListCtrl}->SetItemData($item,$i);
-		$self->{ResultHitListCtrl}->SetItem($i,0,$hitname);
-		$hmap{0}{$i} = $hitname;
-		$self->{ResultHitListCtrl}->SetItem($i,1,$count);
-		$hmap{1}{$i} = $count;
-		$i++;
-	}
-	
-=cut
 	
 	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultHitListCtrl},\&Save);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultHitListCtrl},\&DisplayQueries);
@@ -1687,30 +1661,6 @@ sub DisplayQueries {
 		$count += 1;
 	}
 
-
-=cut
-	my $gis = $control->{Connection}->selectall_arrayref("SELECT gi FROM " . $self->{CurrentHitInfo} . " WHERE hitname=?",undef,$hitname);
-	
-	my $count = 0;
-	for my $gi(@$gis) {
-		my $queries = $control->{Connection}->selectall_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " WHERE gi=?",undef,$gi->[0]);
-		for my $query_row(@$queries) {
-			my $item = $self->{ResultQueryListCtrl}->InsertStringItem($count,"");
-			$self->{ResultQueryListCtrl}->SetItemData($item,$count);
-			$self->{ResultQueryListCtrl}->SetItem($count,0,$query_row->[0]);
-			$qmap{0}{$count} = $query_row->[0];
-			$self->{ResultQueryListCtrl}->SetItem($count,1,$query_row->[2]);
-			$qmap{1}{$count} = $query_row->[2];
-			$self->{ResultQueryListCtrl}->SetItem($count,2,$query_row->[5]);
-			$qmap{2}{$count} = $query_row->[5];
-			$self->{ResultQueryListCtrl}->SetItem($count,3,$query_row->[4]);
-			$qmap{3}{$count} = $query_row->[4];
-			$self->{ResultQueryListCtrl}->SetItem($count,4,$query_row->[3]);
-			$qmap{4}{$count} = $query_row->[3];
-			$count += 1;
-		}
-	}
-=cut
 	EVT_LIST_COL_CLICK($self,$self->{ResultQueryListCtrl},\&OnSortQuery);
 	EVT_LIST_ITEM_SELECTED($self,$self->{ResultQueryListCtrl},\&BindInfoPaint);
 }
@@ -1718,8 +1668,8 @@ sub DisplayQueries {
 sub BindInfoPaint {
 	my ($self,$event) = @_;
 	my $query = $event->GetText;
-	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq) = @{ $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentAllHits} . " WHERE query=?",undef,$query)};
-	my ($gi,$descr,$hitname,$hlength) = @{ $control->{Connection}->selectrow_arrayref("SELECT * FROM " . $self->{CurrentHitInfo} . " WHERE gi=?",undef,$gi)};
+	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore,$descr,$hitname,$hlength) = 
+	@{ $control->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
 	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh);
 }
 
@@ -2084,16 +2034,16 @@ sub RunParsers {
 		$progress_dialog->Destroy;
 	}
 	
-	$self->{Parent}->SetStatusText("Done Processing");
+	$self->{Parent}->SetStatusText("Done Parsing");
 }
 
 sub Run {
 	my ($self) = @_;
 	my $count = $self->{QueueList}->GetCount;
 	if ($count > 0) {
-		my $count_string = "process";
+		my $count_string = "parser";
 		if ($count > 1) {
-			$count_string = "processes";
+			$count_string = "parsers";
 		}
 		my $run_dialog = OkDialog->new($self->{Parent},"Run Parsers","$count " . $count_string . " to run. Continue?");
 		if ($run_dialog->ShowModal == wxID_OK) {
@@ -2245,10 +2195,11 @@ sub TopMenu {
 	
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"New Parser");
+	my $manage = $self->{FileMenu}->Append(102,"Manage Parsing Results");
 	$self->{FileMenu}->AppendSeparator();
-	my $close = $self->{FileMenu}->Append(102,"Quit");
+	my $close = $self->{FileMenu}->Append(103,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
-	EVT_MENU($self,102,sub{$self->Close(1)});
+	EVT_MENU($self,103,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
 	my $table = $viewmenu->Append(201,"Table");
