@@ -439,6 +439,7 @@ sub HitRoutine {
 	my $endq = $hitdata->[13];
 	my $hitlength = $hitdata->[14];
 	
+	print $hitname . "\n";
 	$self->AddData($gi,$hitname);
 	$self->PrintHit($self->{OutputDirectory},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 }
@@ -505,16 +506,35 @@ sub NoHitsFolder {
 	chdir($self->{OutputDirectory});
 	$self->{NoHits} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "NoHits";
 	mkdir($self->{NoHits});
-	copy ($parser_directory . $self->{Control}->{PathSeparator} . "NoHits.fasta",$self->{NoHits} . $self->{Control}->{PathSeparator} . $parser_name . ".NoHits.fasta");
+	copy ($parser_directory . $self->{Control}->{PathSeparator} . "NoHits.fasta",$self->{NoHits} . $self->{Control}->{PathSeparator} . $self->{Control}->GetParserName($parser_name) . ".NoHits.fasta");
 }
 
 sub StatsFile {
 	my $self = shift;
 	chdir($self->{OutputDirectory});
-	open(STATSFILE, '>>' . "Stats.txt");
-	for my $key(keys(%{$self->{Data}})){
-		print STATSFILE $self->{IdToName}{$key} . ": " . $self->{Data}{$key} . "\n";
+	open(STATSFILE, '>>' . "HitTotals.txt");
+	
+	my %hitnames = reverse %{$self->{IdToName}};
+	my %hit2ids = ();
+	
+	## yeah, this probably can be done in one-liner
+	for my $hitname(keys(%hitnames)){
+		for my $key(keys(%{$self->{Data}})) {
+			if ($self->{IdToName}{$key} eq $hitname) {
+				if (defined $hit2ids{$hitname}) {
+					$hit2ids{$hitname} += $self->{Data}{$key};
+				}
+				else {
+					$hit2ids{$hitname} = $self->{Data}{$key};
+				}
+			}
+		}
 	}
+	
+	for my $hitname(keys(%hit2ids)) {
+		print STATSFILE $hitname . ": " . $hit2ids{$hitname} . "\n";	
+	}
+	
 	close STATSFILE;
 }
 
@@ -578,8 +598,7 @@ sub HitRoutine {
 	
 	chdir($self->{OutputDirectory});
 	for my $flag (keys(%{$self->{Data}})) {
-		
-		  if ($hitname =~ m/$flag/igx) {
+		  if ($hitname =~ /$flag/igx) {
 			  $self->PrintHit($self->{FlagDir},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 			  last;
 		  }
@@ -708,12 +727,12 @@ sub GenerateBranch {
 		$species = $parent;
 		my $descendent_name = $species->node_name;
 		my $descendent_id = $species->id;
-
+		my $rank = $species->rank;
 		if (keys %{$self->{Ranks}} and not defined $self->{Ranks}->{$species->rank}) {
 			next;
 		}
 		
-		$self->AddData($descendent_id);  #wasted space in Data if branch is not in Roots.
+		$self->AddData($descendent_id,$descendent_name); #wasted space in Data if branch is not in Roots.
 		
 		if (keys %{$self->{Roots}}) {
 			if (defined $self->{Roots}->{$descendent_name}) {
@@ -738,16 +757,6 @@ sub GenerateBranch {
 		}
 	}
 	return \@path_names;
-}
-
-sub AddData {
-	my ($self,$id) = @_;
-	if (not defined $self->{Data}{$id}) {
-		$self->{Data}{$id} = 1;
-	}
-	else {
-		$self->{Data}{$id} += 1;
-	}
 }
 
 sub GetTrees {
@@ -1174,8 +1183,26 @@ sub PieDataNode {
 sub PieDataRank {
 	my ($self,$sub_node,$rank) = @_;
 	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
+	if ($sub_node->descendent_count == 0) {
+		if ($self->{RANKS}{$sub_node->id} eq $rank) {
+			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_node->id});
+			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_node->id});
+			$pie_data{"Total"} += $self->{VALUES}{$sub_node->id};
+		}
+		elsif ($rank eq "species" and $self->{RANKS}{$sub_node->ancestor()->id} eq "species") {
+			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_node->id});
+			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_node->id});
+			$pie_data{"Total"} += $self->{VALUES}{$sub_node->id};
+		}
+	}
+	
 	for my $sub_sub_node($sub_node->get_all_Descendents) {
-		if ($self->{RANKS}{$sub_sub_node->id} eq $rank) {
+		if ($self->{RANKS}{$sub_sub_node->id} eq $rank){	
+			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
+			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
+			$pie_data{"Total"} += $self->{VALUES}{$sub_sub_node->id};
+		}
+		elsif ($rank eq "species" and $self->{RANKS}{$sub_sub_node->ancestor()->id} eq "species") {
 			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
 			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
 			$pie_data{"Total"} += $self->{VALUES}{$sub_sub_node->id};
