@@ -24,7 +24,7 @@ sub new {
      my $self = {
      	SequenceFile =>  undef,
      	InternalDirectory => $internal_directory,
-     	In => undef, # The bioperl SerachIO object
+     	In => undef, # The bioperl SearchIO object
      	SequenceMemory => undef,
      	Name => $name,
      	DoneParsing => 0,
@@ -268,9 +268,8 @@ sub Parse {
 	
 	while( my $result = $self->{In}->next_result) {
 		$count++;
-		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
-		
-		$progress_dialog->Update($progress_ratio);
+		#my $progress_ratio = int(($count/$self->{NumSeqs})*98);
+		#$progress_dialog->Update($progress_ratio);
 
 		if (my $firsthit = $result->next_hit) {
 			my $firsthsp = $firsthit->next_hsp;
@@ -296,14 +295,14 @@ sub Parse {
 		
 	}
 	
-	$progress_dialog->Update(99,"Saving ...");
+	#$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
 		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
 	}
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
 	}
-	$progress_dialog->Update(100);
+	#$progress_dialog->Update(100);
 }
 
 =head1 NAME
@@ -345,7 +344,7 @@ sub HitRoutine {
 	my ($self,$hitdata) = @_;
 }
 
-# increment the $self->{Data} hash
+# increment the Data hashes
 sub AddData {
 	my ($self,$id,$name) = @_;
 	if (not defined $self->{Data}{$id}) {
@@ -385,8 +384,8 @@ showing the number found for each hit name. This is also a base class for Taxono
 =cut
 
 package TextPrinter;
-use base ("Process");
 use File::Copy;
+use base ("Process");
 
 sub new {
 	 my ($class,$dir,$control) = @_; # $dir is the path where all output ends up.
@@ -439,7 +438,6 @@ sub HitRoutine {
 	my $endq = $hitdata->[13];
 	my $hitlength = $hitdata->[14];
 	
-	print $hitname . "\n";
 	$self->AddData($gi,$hitname);
 	$self->PrintHit($self->{OutputDirectory},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 }
@@ -517,7 +515,7 @@ sub StatsFile {
 	my %hitnames = reverse %{$self->{IdToName}};
 	my %hit2ids = ();
 	
-	## yeah, this probably can be done in one-liner
+	##this probably can be done in one-liner
 	for my $hitname(keys(%hitnames)){
 		for my $key(keys(%{$self->{Data}})) {
 			if ($self->{IdToName}{$key} eq $hitname) {
@@ -598,11 +596,20 @@ sub HitRoutine {
 	
 	chdir($self->{OutputDirectory});
 	for my $flag (keys(%{$self->{Data}})) {
-		  if ($hitname =~ /$flag/igx) {
+		  if ($descr =~ /$flag/ig) {
 			  $self->PrintHit($self->{FlagDir},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 			  last;
 		  }
       }
+}
+
+sub EndRoutine {
+	my ($self,$parser_name,$parser_directory) = @_;
+}
+
+# Save internally the values and structures obtained.
+sub SaveRoutine {
+	my ($self,$parser_name,$parser_directory) = @_;
 }
 
 package TaxonomyTextPrinter;
