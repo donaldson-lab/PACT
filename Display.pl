@@ -17,6 +17,8 @@ use LWP::Simple;
 use Archive::Tar;
 use Fcntl;
 use DB_File;
+use File::Path;
+use File::Find;
 use File::Basename;
 
 sub new {
@@ -39,16 +41,20 @@ sub SetTaxDump {
 	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
 	mkdir($self->{TaxDump});
 	chdir($self->{TaxDump});
-	#getstore("ftp://ftp.ncbi.nih.gov/pub/taxonomy","taxdump.tar.gz");
-	#my $tar = Archive::Tar->new;
-	#$tar->read("ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz");
-	#$tar->extract();
+	#$self->DownloadNCBITaxonomies();
 	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
 	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
 }
 
 sub DownloadNCBITaxonomies {
 	my $self = shift;
+	my $url = "ftp://ftp.ncbi.nih.gov/pub/taxonomy/";
+	my $file = "taxdump.tar.gz";
+	getstore("$url/$file",$file);
+	my $tar = Archive::Tar->new;
+	$tar->read($file);
+	$tar->extract();
+	unlink($file);
 }
 
 sub MakeResultsFolder {
@@ -65,6 +71,43 @@ sub CreateResultFolder {
 	}
 	mkdir($internal_directory);
 	$internal_directory;
+}
+
+sub DeleteResult {
+	my ($self,$key) = @_;
+	chdir($self->{Results});
+	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	if (defined $PARSERNAMES{$key}) {
+		$self->RemoveResultFolder($key);
+		delete $PARSERNAMES{$key};
+	}
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	if (defined $TABLENAMES{$key}) {
+		$self->RemoveResultTables($key);
+		delete $TABLENAMES{$key};
+	}
+}
+
+sub GetDirSize {
+	my ($self,$key) = @_;
+	chdir($self->{Results});
+	my $size = 0;
+	opendir(DIR, $key) or die $!;
+
+    while (my $file = readdir(DIR)) {
+    	next if ($file =~ m/^\./);
+		my $file_path = $self->{Results} . $self->{PathSeparator} . $key . $self->{PathSeparator} . $file;
+		$size += -s $file_path;
+    }
+    close DIR;
+    my $mega = sprintf("%.1f",$size/1000000);
+	return "$mega MB";
+}
+
+sub RemoveResultFolder {
+	my ($self,$key) = @_;
+	chdir($self->{Results});
+	rmtree($key);
 }
 
 sub ParserNames {
@@ -134,7 +177,7 @@ sub GenerateResultKey {
 		my $rand = int(rand scalar(@alpha));
 		$name_key = $name_key . $alpha[$rand];
 	}
-	$name_key = $name_key . $timeData[3] . $timeData[4] . $timeData[5];
+	$name_key = $name_key . "d" . $timeData[3] . "m" . $timeData[4] . "y" . $timeData[5];
 	return $name_key;
 }
 
@@ -296,6 +339,14 @@ sub CreateDatabase {
 	chdir($self->{Results});
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
+}
+
+sub RemoveResultTables {
+	my ($self,$key) = @_;
+	$self->{Connection}->do("DROP TABLE $key" . "_AllHits");
+	$self->{Connection}->do("DROP TABLE $key" . "_HitInfo");
+	$self->{Connection}->do("DROP TABLE $key" . "_QueryInfo");
+	$self->{Connection}->do("VACUUM");
 }
 
 sub GetPathSeparator {
@@ -1028,107 +1079,27 @@ sub DisplayTextInfo {
 	$self->Layout;
 }
 
-package TableMenu;
-
+package TableDisplay;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_LIST_ITEM_SELECTED);
 use Wx::Event qw(EVT_LIST_ITEM_ACTIVATED);
-use Wx::Event qw(EVT_LISTBOX);
-use Wx::Event qw(EVT_LISTBOX_DCLICK);
-use Wx::Event qw(EVT_BUTTON);
 use Wx::Event qw(EVT_LIST_COL_CLICK);
 use Wx::Event qw(EVT_SIZE);
 use base 'Wx::Panel';
 
 sub new {
-	my ($class,$parent) = @_;
-	
+	my ($class,$parent,$table_names) = @_;
 	my $self = $class->SUPER::new($parent,-1);
-	$self->{ResultListBox} = undef;
 	$self->{ResultHitListCtrl} = undef;
 	$self->{ResultQueryListCtrl} = undef;
 	$self->{QueryColumnHash} = ();
 	bless ($self,$class);
-	$self->MainDisplay();
-	$self->Layout;
+	$self->MainDisplay($table_names);
 	return $self;
 }
 
 sub MainDisplay {
-	my ($self) = @_;
-	
-	$self->DestroyChildren;
-	$self->Refresh;
-	$self->SetBackgroundColour($turq);
-	
-	my $leftpanelsizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $leftsizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	
-	my $queuetext = Wx::StaticBox->new($self,-1,"Choose Result");
-	my $qtextsizer = Wx::StaticBoxSizer->new($queuetext,wxVERTICAL);
-	$self->{ResultListBox} = FileBox->new($self);
-	$qtextsizer->Add($self->{ResultListBox}->{ListBox},1,wxEXPAND);
-	$control->AddResultsBox($self->{ResultListBox});
-	
-	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $add_button = Wx::Button->new($self,-1,"Add");
-	$add_sizer_v->Add($add_button,1,wxCENTER);
-	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
-	
-	my $comparetext = Wx::StaticBox->new($self,-1,"Result(s) to View");
-	my $comparesizer = Wx::StaticBoxSizer->new($comparetext,wxVERTICAL);
-	$self->{CompareListBox} = FileBox->new($self);
-	$comparesizer->Add($self->{CompareListBox}->{ListBox},1,wxEXPAND);
-	
-	$leftsizer->Add($qtextsizer,4,wxEXPAND);
-	$leftsizer->Add($add_sizer_h,1,wxCENTER);
-	$leftsizer->Add($comparesizer,4,wxEXPAND);
-	
-	my $paramsizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $choice_wrap = Wx::BoxSizer->new(wxVERTICAL);
-	$choice_wrap->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxEXPAND);
-	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
-	
-	my $bit_label = Wx::StaticText->new($self,-1,"Bit Score:");
-	$choice_sizer->Add($bit_label,1,wxCENTER);
-	$self->{BitTextBox} = Wx::TextCtrl->new($self,-1,'40.0');
-	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
-	
-	my $e_label = Wx::StaticText->new($self,-1,"E-value:");
-	$choice_sizer->Add($e_label,1,wxCENTER);
-	$self->{EValueTextBox} = Wx::TextCtrl->new($self,-1,'0.001');
-	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
-	$choice_wrap->Add($choice_sizer,3,wxCENTER);
-	
-	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $view_button = Wx::Button->new($self,-1,"View");
-	$view_sizer_v->Add($view_button,1,wxCENTER);
-	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
-	$choice_wrap->Add($view_sizer_h,1,wxCENTER);
-	
-	$paramsizer->Add($choice_wrap,1,wxCENTER);
-	
-	$leftpanelsizer->Add($leftsizer,1,wxEXPAND);
-	$leftpanelsizer->Add($paramsizer,1,wxEXPAND);
-	
-	$self->SetSizer($leftpanelsizer);
-	$self->Layout;
-	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetAllFiles)});
-	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
-	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
-}
-
-sub DisplayTable {
 	my ($self,$table_names) = @_;
-	
-	$self->DestroyChildren;
-	$self->SetBackgroundColour(wxWHITE);
-	$self->Refresh;
-	
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $rightsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
@@ -1159,17 +1130,9 @@ sub DisplayTable {
 	EVT_SIZE($self,\&OnSize);
 }
 
-sub DeleteCompareResult {
-	my ($self) = @_;
-	my $delete_dialog = OkDialog->new($self,"Delete","Remove Result?");
-	if ($delete_dialog->ShowModal == wxID_OK) {
-		$self->{CompareListBox}->DeleteFile;
-	}
-	$delete_dialog->Destroy;
-}
-
 sub CompareTables {
 	my ($self,$table_names) = @_;
+	$control->{Connection}->do("DROP TABLE IF EXISTS t");
 	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
 	for my $table(@$table_names) {
@@ -1340,6 +1303,130 @@ sub Save {
 	  	close FASTA;
 	}
 	$dialog->Destroy;
+}
+
+package TableMenu;
+
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_LISTBOX);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+use Wx::Event qw(EVT_BUTTON);
+use base 'Wx::Panel';
+
+sub new {
+	my ($class,$parent) = @_;
+	
+	my $self = $class->SUPER::new($parent,-1);
+	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{MainPanel} = Wx::Panel->new($self,-1);
+	$self->{TableDisplay} = undef;
+	$self->{ResultListBox} = undef;
+	bless ($self,$class);
+	$self->UpdateItems();
+	$self->SetSizer($self->{Sizer});
+	$self->Layout;
+	return $self;
+}
+
+sub UpdateItems {
+	my ($self) = @_;
+	$self->{Sizer}->Clear;
+	if (defined $self->{TableDisplay}) {
+		$self->{TableDisplay}->Destroy;
+	}
+	$self->Refresh;
+	$self->MainDisplay();
+	$self->{MainPanel}->Show;
+	$self->Layout;
+}
+
+sub MainDisplay {
+	my ($self) = @_;
+	
+	$self->{MainPanel}->DestroyChildren;
+	$self->{MainPanel}->SetBackgroundColour($turq);
+	
+	my $leftpanelsizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $leftsizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	
+	my $queuetext = Wx::StaticBox->new($self->{MainPanel},-1,"Choose Result");
+	my $qtextsizer = Wx::StaticBoxSizer->new($queuetext,wxVERTICAL);
+	$self->{ResultListBox} = FileBox->new($self->{MainPanel});
+	$qtextsizer->Add($self->{ResultListBox}->{ListBox},1,wxEXPAND);
+	$control->AddResultsBox($self->{ResultListBox});
+	
+	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $add_button = Wx::Button->new($self->{MainPanel},-1,"Add");
+	$add_sizer_v->Add($add_button,1,wxCENTER);
+	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+	
+	my $comparetext = Wx::StaticBox->new($self->{MainPanel},-1,"Result(s) to View");
+	my $comparesizer = Wx::StaticBoxSizer->new($comparetext,wxVERTICAL);
+	$self->{CompareListBox} = FileBox->new($self->{MainPanel});
+	$comparesizer->Add($self->{CompareListBox}->{ListBox},1,wxEXPAND);
+	
+	$leftsizer->Add($qtextsizer,4,wxEXPAND);
+	$leftsizer->Add($add_sizer_h,1,wxCENTER);
+	$leftsizer->Add($comparesizer,4,wxEXPAND);
+	
+	my $paramsizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $choice_wrap = Wx::BoxSizer->new(wxVERTICAL);
+	$choice_wrap->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxEXPAND);
+	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
+	
+	my $bit_label = Wx::StaticText->new($self->{MainPanel},-1,"Bit Score:");
+	$choice_sizer->Add($bit_label,1,wxCENTER);
+	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,'40.0');
+	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
+	
+	my $e_label = Wx::StaticText->new($self->{MainPanel},-1,"E-value:");
+	$choice_sizer->Add($e_label,1,wxCENTER);
+	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,'0.001');
+	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
+	$choice_wrap->Add($choice_sizer,3,wxCENTER);
+	
+	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $view_button = Wx::Button->new($self->{MainPanel},-1,"View");
+	$view_sizer_v->Add($view_button,1,wxCENTER);
+	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
+	$choice_wrap->Add($view_sizer_h,1,wxCENTER);
+	
+	$paramsizer->Add($choice_wrap,1,wxCENTER);
+	
+	$leftpanelsizer->Add($leftsizer,1,wxEXPAND);
+	$leftpanelsizer->Add($paramsizer,1,wxEXPAND);
+	
+	$self->{MainPanel}->SetSizer($leftpanelsizer);
+	$self->{MainPanel}->Layout;
+	$self->{Sizer}->Add($self->{MainPanel},1,wxEXPAND);
+	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetAllFiles)});
+	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
+	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
+}
+
+sub DisplayTable {
+	my ($self,$table_names) = @_;
+	$self->{MainPanel}->Hide;
+	$self->{Sizer}->Clear;
+	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{TableDisplay} = TableDisplay->new($self,$table_names);
+	$self->{Sizer}->Add($self->{TableDisplay},1,wxEXPAND);
+	$self->Refresh;
+	$self->Layout;
+	$self->Show;
+}
+
+sub DeleteCompareResult {
+	my ($self) = @_;
+	my $delete_dialog = OkDialog->new($self,"Delete","Remove Result?");
+	if ($delete_dialog->ShowModal == wxID_OK) {
+		$self->{CompareListBox}->DeleteFile;
+	}
+	$delete_dialog->Destroy;
 }
 
 package ParserMenu;
@@ -1743,7 +1830,7 @@ sub OutputMenu {
 	my $table_label = Wx::StaticBox->new($add_panel,-1,"Database Table?");
 	my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
 	my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"Yes/No");
+	$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"");
 	$check_sizer->Add($self->{TableCheck},1,wxCENTER);
 	$table_label_sizer->Add($check_sizer,1,wxEXPAND);
 	
@@ -1951,14 +2038,11 @@ sub GenerateParsers {
 	}
 }
 
-## This routine needs some work.
+
 sub GenerateParser {
 	my ($self,$label,$page) = @_;
 	
-	## Should be in next sub-routine
-	my $key = $control->AddParserName($label);
-	my $dir = $control->CreateResultFolder($key);
-	my $parser = BlastParser->new($key,$dir);
+	my $parser = BlastParser->new($label);
 	
 	$parser->SetBlastFile($page->{BlastFilePath});
 	$parser->SetSequences($page->{FastaFilePath});
@@ -1989,8 +2073,7 @@ sub GenerateParser {
 	}
 	
 	if ($page->{TableCheck}->GetValue==1) {
-		my $table = SendTable->new($key,$control);
-		$control->AddTableName($label,$key);
+		my $table = SendTable->new($control);
 		$parser->AddProcess($table);
 	}
 	if ($page->{OutputDirectoryPath} ne "") { # should be directory checked instead
@@ -2027,15 +2110,18 @@ sub GenerateParser {
 sub RunParsers {
 	my ($self) = @_;
 	
+	my $progress_dialog = Wx::ProgressDialog->new("","",100,undef,wxSTAY_ON_TOP|wxPD_APP_MODAL);
 	for my $parser(@{$self->{Parsers}}) {
+		my $key = $control->AddParserName($parser->{Label});
+		my $dir = $control->CreateResultFolder($key);
+		$parser->prepare($key,$dir);
 		my @label_strings = split(/\//,$parser->{BlastFile});
 		my $label = $label_strings[@label_strings - 1];
-		#my $progress_dialog = Wx::ProgressDialog->new("","Parsing " . $label . " ...",100,undef,wxSTAY_ON_TOP);
-		#$progress_dialog->SetBackgroundColour($blue);
-		$parser->Parse(); # $progress_dialog);
-		#$progress_dialog->Destroy;
+		$progress_dialog->Update(-1,"Parsing " . $label . " ...");
+		$progress_dialog->Fit();
+		$parser->Parse($progress_dialog);
 	}
-	
+	$progress_dialog->Destroy;
 	$self->{Parent}->SetStatusText("Done Parsing");
 }
 
@@ -2062,6 +2148,117 @@ sub Run {
 	}
 }
 
+package ResultsManager;
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_LIST_ITEM_SELECTED);
+use Wx::Event qw(EVT_LIST_ITEM_ACTIVATED);
+use Wx::Event qw(EVT_LIST_COL_CLICK);
+use Wx::Event qw(EVT_SIZE);
+use base 'Wx::Panel';
+
+sub new {
+	my ($class,$parent) = @_;
+	
+	my $self = $class->SUPER::new($parent,-1);
+	$self->{Parent} = $parent;
+	$self->{Keys} = ();
+	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
+	$self->ShowResults();
+	
+	bless ($self,$class);
+	return $self;
+}
+
+sub UpdateItems {
+	my ($self) = @_;
+	$self->{ResultsCtrl}->ClearAll;
+	$self->SetupListCtrl();
+	$self->Fill();
+}
+
+sub ShowResults {
+	my ($self) = @_;
+	
+	$self->{ResultsCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
+	$self->SetupListCtrl();
+	$self->Fill();
+	
+	$self->{Sizer}->Add($self->{ResultsCtrl},1,wxEXPAND);
+	$self->SetSizer($self->{Sizer});
+	
+	EVT_SIZE($self,\&OnSize);
+	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultsCtrl},sub{$self->DeleteDialog($_[1]->GetItem()->GetId)});
+}
+
+sub SetupListCtrl {
+	my ($self) = @_;
+	$self->{ResultsCtrl}->InsertColumn(0,"Result Name");
+	$self->{ResultsCtrl}->InsertColumn(1,"Date Created");
+	$self->{ResultsCtrl}->InsertColumn(2,"Size");
+	
+	my $size = $self->{Parent}->GetClientSize();
+	my $width = $size->GetWidth();
+	
+	$self->{ResultsCtrl}->SetColumnWidth(0,$width/2);
+	$self->{ResultsCtrl}->SetColumnWidth(1,$width/4);
+	$self->{ResultsCtrl}->SetColumnWidth(2,$width/4);
+}
+
+sub OnSize {
+	my ($self,$event) = @_;;
+	my $size = $self->{Parent}->GetClientSize();
+	my $width = $size->GetWidth();
+	
+	$self->{ResultsCtrl}->SetColumnWidth(0,$width/2);
+	$self->{ResultsCtrl}->SetColumnWidth(1,$width/4);
+	$self->{ResultsCtrl}->SetColumnWidth(2,$width/4);
+	
+	$self->Refresh;
+	$self->Layout;
+}
+
+sub Fill {
+	my ($self) = @_;
+	my $parser_names = $control->GetParserNames();
+	my $i = 0;
+	for my $key(keys(%{$parser_names})) {
+		push(@{$self->{Keys}},$key);
+		my $item = $self->{ResultsCtrl}->InsertStringItem($i,"");
+		$self->{ResultsCtrl}->SetItemData($item,$i);
+		$self->{ResultsCtrl}->SetItem($i,0,$parser_names->{$key});
+		$self->{ResultsCtrl}->SetItem($i,1,$self->GetDate($key));
+		$self->{ResultsCtrl}->SetItem($i,2,$control->GetDirSize($key));
+		$i++;
+	}
+}
+
+sub GetDate {
+	my ($self,$key) = @_;
+	# to be removed from program release
+	if ($key =~ /187111/) {
+		return "August 18, 2011";
+	}
+	my %months = (0=>"January",1=>"February",2=>"March",3=>"April",4=>"May",5=>"June",6=>"July",7=>"August",8=>"September",9=>"October",10=>"November",11=>"December");
+	my $day = $1 if ($key =~ /d(\d{1,2})/);
+	my $month_key = $1 if ($key =~ /m(\d{1,2})/);
+	my $year_numb = $1 if ($key =~ /y(\d{3})/);
+	my $month = $months{$month_key};
+	my $year = 1900 + $year_numb;
+	return "$month $day, $year";
+}
+
+sub DeleteDialog {
+	my ($self,$index) = @_;
+	my $delete_dialog = OkDialog->new($self->{Parent},"Delete Result","Delete " . $self->{ResultsCtrl}->GetItemText($index) . "?");
+	if ($delete_dialog->ShowModal == wxID_OK) {
+		$self->{ResultsCtrl}->DeleteItem($index);
+		my $key = $self->{Keys}->[$index];
+		splice(@{$self->{Keys}},$index,1);
+		$control->DeleteResult($key);
+	}
+	$delete_dialog->Destroy;
+}
+
 package Display;
 use base 'Wx::Frame';
 use Wx qw /:everything/;
@@ -2080,14 +2277,13 @@ sub new {
 	my $self = $class->SUPER::new(undef,-1,'PACT',[-1,-1],[1200,600],);
 	
 	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{Panel} = Wx::Panel->new($self,-1);
-	$self->{Panel}->SetBackgroundColour($turq);
 	$self->{QueuePanel} = undef;
 	$self->{PiePanel} = undef;
 	$self->{TablePanel} = undef;
 	$self->{TreePanel} = undef;
+	$self->{ResultsPanel} = undef;
+	$self->{PanelArray} = ();
 	
-	$self->{Sizer}->Add($self->{Panel},1,wxGROW);
 	$self->SetSizer($self->{Sizer});
 
 	$self->Centre();
@@ -2095,112 +2291,89 @@ sub new {
 	return $self;
 }
 
-sub OnProcessClicked {
-	my ($self,$event) = @_;
-	$self->{Panel}->Hide;
-	if (defined $self->{TablePanel}) {
-		$self->{TablePanel}->Hide;
-	}
-	if (defined $self->{PiePanel}) {
-		$self->{PiePanel}->Hide;
-	}
-	if (defined $self->{TreePanel}) {
-		$self->{TreePanel}->Hide;
-	}
-	$self->Refresh;
-	if (defined $self->{QueuePanel}) {
-		$self->{QueuePanel}->Show;
-	}
-	else {
-		$self->{QueuePanel} = QueuePanel->new($self);
+## Shows the selected panel and hides all others
+sub DisplayPanel {
+	my ($self,$show_panel) = @_;
+	for my $panel(@{$self->{PanelArray}}) {
+		if ($panel eq $show_panel) {
+			if (defined $show_panel) {
+				$self->Refresh;
+				$show_panel->Show;
+			}
+		}
+		else {
+			if (defined $panel) {
+				$panel->Hide;
+			}
+		}
 	}
 	$self->{Sizer}->Clear;
-	$self->{Sizer}->Add($self->{QueuePanel},1,wxEXPAND);
+	$self->{Sizer}->Add($show_panel,1,wxEXPAND);
 	$self->Layout;
+} 
+
+sub OnProcessClicked {
+	my ($self,$event) = @_;
+	if (not defined $self->{QueuePanel}) {
+		$self->{QueuePanel} = QueuePanel->new($self);
+		push(@{$self->{PanelArray}},$self->{QueuePanel});	
+	}
+	$self->DisplayPanel($self->{QueuePanel});
 }
 
 sub InitializePieMenu {
 	my($self,$event) = @_;
-	$self->{Panel}->Hide;
-	if (defined $self->{TablePanel}) {
-		$self->{TablePanel}->Hide;
+	if (not defined $self->{PiePanel}) {
+		$self->{PiePanel} = PieMenu->new($self);
+		push(@{$self->{PanelArray}},$self->{PiePanel}->{Panel});	
 	}
-	if (defined $self->{QueuePanel}) {
-		$self->{QueuePanel}->Hide;
-	}
-	if (defined $self->{TreePanel}) {
-		$self->{TreePanel}->Hide;
-	}
-	$self->Refresh;
-	if (defined $self->{PiePanel}) {
-		$self->{PiePanel}->Show;
-	}
-	else {
-		my $piemenu = PieMenu->new($self);
-		$self->{PiePanel} = $piemenu->{Panel};
-	}
-	$self->{Sizer}->Clear;
-	$self->{Sizer}->Add($self->{PiePanel},1,wxEXPAND);
-	$self->Layout;
+	$self->DisplayPanel($self->{PiePanel}->{Panel});
 }
 
 sub InitializeTreeMenu {
 	my($self,$event) = @_;
-	$self->{Panel}->Hide;
-	if (defined $self->{TablePanel}) {
-		$self->{TablePanel}->Hide;
-	}
-	if (defined $self->{QueuePanel}) {
-		$self->{QueuePanel}->Hide;
-	}
-	if (defined $self->{PiePanel}) {
-		$self->{PiePanel}->Hide;
-	}
-	$self->Refresh;
-	if (defined $self->{TreePanel}) {
-		$self->{TreePanel}->Show;
-	}
-	else {
+	if (not defined $self->{TreePanel}) {
 		$self->{TreePanel} = TreeMenu->new($self);
+		push(@{$self->{PanelArray}},$self->{TreePanel});	
 	}
-	$self->{Sizer}->Clear;
-	$self->{Sizer}->Add($self->{TreePanel},1,wxEXPAND);
-	$self->Layout;
+	$self->DisplayPanel($self->{TreePanel});
 }
 
 sub InitializeTableViewer {
 	my($self,$event) = @_;
-	$self->{Panel}->Hide;
-	if (defined $self->{QueuePanel}) {
-		$self->{QueuePanel}->Hide;
-	}
-	if (defined $self->{PiePanel}) {
-		$self->{PiePanel}->Hide;
-	}
-	if (defined $self->{TreePanel}) {
-		$self->{TreePanel}->Hide;
-	}
-	$self->Refresh;
-	if (defined $self->{TablePanel}) {
-		$self->{TablePanel}->Show;
+	if (not defined $self->{TablePanel}) {
+		$self->{TablePanel} = TableMenu->new($self);
+		push(@{$self->{PanelArray}},$self->{TablePanel});	
 	}
 	else {
-		$self->{TablePanel} = TableMenu->new($self);
+		$self->{TablePanel}->UpdateItems();
 	}
-	$self->{Sizer}->Clear;
-	$self->{Sizer}->Add($self->{TablePanel},1,wxEXPAND);
-	$self->Layout;
+	$self->DisplayPanel($self->{TablePanel});
+	
+}
+
+sub InitializeResultManager {
+	my ($self,$event) = @_;
+	if (not defined $self->{ResultsPanel}) {
+		$self->{ResultsPanel} = ResultsManager->new($self);
+		push(@{$self->{PanelArray}},$self->{ResultsPanel});	
+	}
+	else {
+		$self->{ResultsPanel}->UpdateItems();
+	}
+	$self->DisplayPanel($self->{ResultsPanel});
 }
 
 sub TopMenu {
 	my ($self) = @_;
-	
+
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"New Parser");
-	my $manage = $self->{FileMenu}->Append(102,"Manage Parsing Results");
+	my $manage = $self->{FileMenu}->Append(102,"Manage Results");
 	$self->{FileMenu}->AppendSeparator();
 	my $close = $self->{FileMenu}->Append(103,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
+	EVT_MENU($self,102,\&InitializeResultManager);
 	EVT_MENU($self,103,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
