@@ -132,16 +132,17 @@ use File::Path;
 
 sub new {
      
-     my ($class,$name,$internal_directory) = @_;
+     my ($class,$label) = @_;
      
      my $self = {
      	BlastFile => undef,
      	SequenceFile =>  undef,
-     	InternalDirectory => $internal_directory,
+     	InternalDirectory => undef, # subfolder of Results folder where parsing results are stored
      	In => undef,
      	SequenceMemory => undef,
      	HasTaxonomy => 0, # to be deprecated ?
-     	Name => $name,
+     	Name => undef,
+     	Label => $label,
      	DoneParsing => 0,
      	NumSeqs => 0,
      	Bit =>40.0,
@@ -152,6 +153,15 @@ sub new {
      bless($self,$class);
      return $self;
 
+}
+
+sub prepare {
+	my ($self,$key,$internal_directory) = @_;
+	$self->{Name} = $key;
+	$self->{InternalDirectory} = $internal_directory;
+	for my $process(@{$self->{Processes}}) {
+		$process->prepare($self->{Label},$key);
+	}
 }
 
 sub SetBlastFile {
@@ -268,8 +278,8 @@ sub Parse {
 	
 	while( my $result = $self->{In}->next_result) {
 		$count++;
-		#my $progress_ratio = int(($count/$self->{NumSeqs})*98);
-		#$progress_dialog->Update($progress_ratio);
+		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
+		$progress_dialog->Update($progress_ratio);
 
 		if (my $firsthit = $result->next_hit) {
 			my $firsthsp = $firsthit->next_hsp;
@@ -295,14 +305,14 @@ sub Parse {
 		
 	}
 	
-	#$progress_dialog->Update(99,"Saving ...");
+	$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
 		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
 	}
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
 	}
-	#$progress_dialog->Update(100);
+	$progress_dialog->Update(100);
 }
 
 =head1 NAME
@@ -363,6 +373,11 @@ sub EndRoutine {
 # Save internally the values and structures obtained.
 sub SaveRoutine {
 	my ($self,$parser_name,$parser_directory) = @_;
+}
+
+# To be called before the parsing
+sub prepare {
+	my ($self,$parser_name,$parser_key) = @_;
 }
 
 =head1 NAME
@@ -1016,30 +1031,39 @@ use base ("Process");
 
 sub new {
      
-     my ($class,$parser_name,$control) = @_;
+     my ($class,$control) = @_;
      
      my $self = $class->SUPER::new($control);
-     
-     $self->{TableName} = $parser_name;
      $self->{GIs} = (); # Hash of gi numbers as primary keys for HitInfo
-	 $self->{QueryInfo} = $self->{TableName} . "_QueryInfo";
-	 $self->{AllHits} = $self->{TableName} . "_AllHits";
-	 $self->{HitInfo} = $self->{TableName} . "_HitInfo";
-
-	 chdir($self->{Control}->{CurrentDirectory});
-	 
-	 $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{QueryInfo});
-	 $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{AllHits});
-     $self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{HitInfo});
-	 
-	 
-	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
-	 $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{AllHits} .  "(query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
-	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER)");
-     $self->{Control}->{Connection}->do("CREATE TABLE " . $self->{HitInfo} .  "(gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
      bless($self,$class);
      return $self;
 
+}
+
+sub prepare {
+	my ($self,$parser_name,$parser_key) = @_;
+	$self->{TableName} = $parser_key;
+	$self->MakeTables();
+	$self->{Control}->AddTableName($parser_name,$parser_key);
+}
+
+sub MakeTables {
+	my ($self) = @_;
+	
+	$self->{QueryInfo} = $self->{TableName} . "_QueryInfo";
+	$self->{AllHits} = $self->{TableName} . "_AllHits";
+	$self->{HitInfo} = $self->{TableName} . "_HitInfo";
+	
+	chdir($self->{Control}->{CurrentDirectory});
+		 
+	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{QueryInfo});
+	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{AllHits});
+	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{HitInfo});
+		 
+	$self->{Control}->{Connection}->do("CREATE TABLE " . $self->{QueryInfo} .  "(query TEXT,qlength INTEGER,sequence TEXT)");
+	$self->{Control}->{Connection}->do("CREATE TABLE " . $self->{AllHits} .  "(query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+		evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER)");
+	$self->{Control}->{Connection}->do("CREATE TABLE " . $self->{HitInfo} .  "(gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
 }
 
 sub HitRoutine {
