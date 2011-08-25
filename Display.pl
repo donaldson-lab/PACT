@@ -1445,8 +1445,7 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($blue);
-	$self->{ParentNotebook} = $parent;
+	$self->SetBackgroundColour($turq);
 
 	$self->{BlastFileTextBox} = undef;
 	$self->{FastaFileTextBox} = undef;
@@ -1557,7 +1556,7 @@ sub NewParserMenu {
 	
 	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1);
 	
-	$self->{OptionsNotebook}->SetBackgroundColour($blue);
+	$self->{OptionsNotebook}->SetBackgroundColour($turq);
 	
 	my $filespanel = $self->InputFilesMenu();
 	my $classificationpanel = $self->ClassificationMenu();
@@ -1586,13 +1585,10 @@ sub InputFilesMenu {
 	
 	my $parser_label = Wx::StaticBox->new($filespanel,-1,"Parser Name");
 	my $parser_label_sizer = Wx::StaticBoxSizer->new($parser_label,wxHORIZONTAL);
-	my $parser_text = Wx::StaticText->new($filespanel,-1,"Choose a name for this parsing job");
+	my $parser_text = Wx::StaticText->new($filespanel,-1,"Choose a name for this parser: ");
 	$self->{ParserNameTextCtrl} = Wx::TextCtrl->new($filespanel,-1,"");
 	$parser_label_sizer->Add($parser_text,1,wxCENTER);
 	$parser_label_sizer->Add($self->{ParserNameTextCtrl},1,wxCENTER);
-	EVT_TEXT($filespanel,$self->{ParserNameTextCtrl},sub{
-		$self->{ParentNotebook}->SetPageText($self->{ParentNotebook}->GetSelection,$self->{ParserNameTextCtrl}->GetValue);
-	});
 	
 	my $blastsizer = Wx::FlexGridSizer->new(1,2,15,15);
 	$blastsizer->AddGrowableCol(0,1);
@@ -1635,7 +1631,7 @@ sub InputFilesMenu {
 sub ClassificationMenu {
 	my ($self) = @_;
 	
-	my $parent = $self->{ParentNotebook}->GetParent();
+	my $parent = $self->GetParent();
 	while (defined $parent->GetParent) {
 		$parent = $parent->GetParent;
 	}
@@ -1865,7 +1861,10 @@ sub new {
 	
 	$self->{Parent} = $parent;
 	$self->{QueueList} = undef;
+	$self->{GenerateList} = undef;
 	$self->{Parsers} = ();
+	$self->{ParserPanels} = ();
+	$self->{CurrentPage} = undef;
 	
 	bless ($self,$class);
 	$self->SetPanels();
@@ -1882,38 +1881,153 @@ sub SetPanels {
 	$self->SetSizer($self->{Sizer});
 	
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-		
-	my $splitter = Wx::SplitterWindow->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSP_3D);
-
-	$self->{LeftPanel} = Wx::Panel->new($splitter,-1);
-	$self->{LeftPanel}->SetBackgroundColour($turq);
-	my $leftsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $listlabel = Wx::StaticBox->new($self->{LeftPanel},-1,"Queue");
+	$self->SetGeneratePanel();
+	
+	$self->SetParserPanel();
+	
+	$self->SetQueuePanel();
+
+	$sizer->Add($self->{GeneratePanel},1,wxEXPAND);
+	$sizer->Add($self->{ParserPanel},2,wxEXPAND);
+	$sizer->Add($self->{QueuePanel},1,wxEXPAND);
+	
+	$self->SetSizer($sizer);
+	$self->Layout;
+}
+
+sub SetGeneratePanel {
+	my ($self) = @_;
+	
+	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
+	$self->{GeneratePanel}->SetBackgroundColour($turq);
+	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $listlabel = Wx::StaticBox->new($self->{GeneratePanel},-1,"Parsers");
 	my $listsizer = Wx::StaticBoxSizer->new($listlabel,wxVERTICAL);
-	$self->{QueueList} = Wx::ListBox->new($self->{LeftPanel},-1,wxDefaultPosition(),wxDefaultSize());
+	$self->{GenerateList} = Wx::ListBox->new($self->{GeneratePanel},-1,wxDefaultPosition(),wxDefaultSize());
+	$listsizer->Add($self->{GenerateList},1,wxEXPAND);
+	
+	my $button_sizer_h = Wx::BoxSizer->new(wxVERTICAL);
+	my $button_sizer_v = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $new_button = Wx::Button->new($self->{GeneratePanel},-1,'New');
+	$button_sizer_h->Add($new_button,1,wxCENTER);
+	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
+	EVT_BUTTON($self->{GeneratePanel},$new_button,sub{$self->NewParser()});
+	
+	$sizer->Add($listsizer,7,wxEXPAND);
+	$sizer->Add($button_sizer_v,1,wxCENTER);
+	
+	$self->{GeneratePanel}->SetSizer($sizer);
+	$self->{GeneratePanel}->Layout;
+	
+	EVT_LISTBOX($self->{GeneratePanel},$self->{GenerateList},sub{$self->DisplayParserMenu($self->{GenerateList}->GetSelection)});
+	EVT_LISTBOX_DCLICK($self->{GeneratePanel},$self->{GenerateList},sub{
+		my $delete_dialog = OkDialog->new($self->Parent,"Delete","Delete Parser?");
+		if ($delete_dialog->ShowModal == wxID_OK) {
+			$delete_dialog->Destroy;
+			$self->DeleteParser();
+		}
+		else {
+			$delete_dialog->Destroy;
+		}
+		});
+}
+
+sub NewParser {
+	my ($self) = @_;
+}
+
+sub NewPage {
+	my ($self) = @_;
+	if (defined $self->{CurrentPage}) {
+		my $label = $self->{CurrentPage}->{ParserNameTextCtrl}->GetValue;
+		$self->{GenerateList}->InsertItems([$label],0);
+	}
+	$self->{CurrentPage} = ParserMenu->new($self->{ParserPanel});
+	push(@{$self->{ParserPanels}},$self->{CurrentPage});
+}
+
+sub ShowParserPanel {
+	my ($self,$page) = @_;
+	for my $panel(@{$self->{ParserPanels}}) {
+		if ($panel eq $page) {
+			$page->Show;
+			$self->{CurrentPage} = $page;
+		}
+		else {
+			$panel->Hide;
+		}
+	}
+}
+
+sub DisplayParserMenu {
+	my ($self,$selection) = @_;
+	my $page = $self->{ParserPanels}->[$selection];
+	$self->ShowParserPanel($page);
+}
+
+sub DeleteParser {
+	my ($self,$list_box) = @_;
+	my $selection = $self->{GenerateList}->GetSelection;
+	$self->{GenerateList}->Delete($selection);
+	splice(@{$self->{ParserPanels}},$selection,1);
+	if (@{$self->{ParserPanels}} == 0) {
+		my $new_page = $self->NewPage();
+	}
+	$self->Refresh;
+}
+
+sub SetParserPanel {
+	my ($self) = @_;
+	$self->{ParserPanel} = Wx::Panel->new($self,-1);
+	$self->{ParserPanel}->SetBackgroundColour($turq);
+	$self->NewPage();
+	my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{ParserPanel}->Layout;
+	
+	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $queue_button = Wx::Button->new($self->{ParserPanel},-1,'Queue');
+	$button_sizer_h->Add($queue_button,1,wxCENTER);
+	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
+	
+	#EVT_BUTTON($self->{ParserPanel},$queue_button,sub{$self->NewProcessForQueue()});
+	
+	$menusizer->Add($self->{CurrentPage},8,wxEXPAND);
+	$menusizer->Add($button_sizer_v,1,wxEXPAND);
+	$self->{ParserPanel}->SetSizer($menusizer);
+}
+
+sub SetQueuePanel {
+	my ($self) = @_;
+	
+	$self->{QueuePanel} = Wx::Panel->new($self,-1);
+	$self->{QueuePanel}->SetBackgroundColour($turq);
+	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $listlabel = Wx::StaticBox->new($self->{QueuePanel},-1,"Queue");
+	my $listsizer = Wx::StaticBoxSizer->new($listlabel,wxVERTICAL);
+	$self->{QueueList} = Wx::ListBox->new($self->{QueuePanel},-1,wxDefaultPosition(),wxDefaultSize());
 	$listsizer->Add($self->{QueueList},1,wxEXPAND);
 	
 	my $button_sizer_h = Wx::BoxSizer->new(wxVERTICAL);
 	my $button_sizer_v = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $run_button = Wx::Button->new($self->{LeftPanel},1,"Run");
+	my $run_button = Wx::Button->new($self->{QueuePanel},1,"Run");
 	$button_sizer_h->Add($run_button,1,wxCENTER);
 	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
-	EVT_BUTTON($self->{LeftPanel},$run_button,sub{$self->Run()});
+	EVT_BUTTON($self->{QueuePanel},$run_button,sub{$self->Run()});
 	
-	$leftsizer->Add($listsizer,7,wxEXPAND);
-	$leftsizer->Add($button_sizer_v,1,wxCENTER);
+	$sizer->Add($listsizer,7,wxEXPAND);
+	$sizer->Add($button_sizer_v,1,wxCENTER);
 	
-	$self->{LeftPanel}->SetSizer($leftsizer);
-	$self->{LeftPanel}->Layout;
+	$self->{QueuePanel}->SetSizer($sizer);
+	$self->{QueuePanel}->Layout;
 	
-	my $parent = $self->GetParent();
-	while (defined $parent->GetParent) {
-		$parent = $parent->GetParent;
-	}
+=cut
 	
-	EVT_LISTBOX($self->{LeftPanel},$self->{QueueList},sub{$self->DisplayParserMenu($self->{QueueList}->GetSelection)});
-	EVT_LISTBOX_DCLICK($self->{LeftPanel},$self->{QueueList},sub{
+	EVT_LISTBOX($self->{QueuePanel},$self->{QueueList},sub{$self->DisplayParserMenu($self->{QueueList}->GetSelection)});
+	EVT_LISTBOX_DCLICK($self->{QueuePanel},$self->{QueueList},sub{
 		my $delete_dialog = OkDialog->new($parent,"Delete","Delete Parser?");
 		if ($delete_dialog->ShowModal == wxID_OK) {
 			$delete_dialog->Destroy;
@@ -1923,64 +2037,17 @@ sub SetPanels {
 			$delete_dialog->Destroy;
 		}
 		});
-	
-	$self->{ParserNotebook} = undef;
-	$self->{RightPanel} = Wx::Panel->new($splitter,-1);
-	$self->{RightPanel}->SetBackgroundColour($turq);
-	my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{ParserNotebook} = Wx::Notebook->new($self->{RightPanel},-1);
-	$self->{ParserNotebook}->SetBackgroundColour($turq);
-	my $new_page = ParserMenu->new($self->{ParserNotebook});
-	$self->{ParserNotebook}->AddPage($new_page,"New Parser");
-	$self->{RightPanel}->Layout;
-	
-	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $queue_button = Wx::Button->new($self->{RightPanel},-1,'Queue');
-	my $new_button = Wx::Button->new($self->{RightPanel},-1,'New');
-	$button_sizer_h->Add($queue_button,1,wxCENTER);
-	$button_sizer_h->Add($new_button,1,wxCENTER);
-	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
-	
-	EVT_BUTTON($self->{RightPanel},$queue_button,sub{$self->NewProcessForQueue()});
-	EVT_BUTTON($self->{RightPanel},$new_button,sub{$self->NewPage()});
-	
-	$self->{ParserNotebook}->Layout;
-	$menusizer->Add($self->{ParserNotebook},8,wxEXPAND);
-	$menusizer->Add($button_sizer_v,1,wxEXPAND);
-	$self->{RightPanel}->SetSizer($menusizer);
-	
-	my $splitsize = ($self->{Parent}->GetSize()->width)/4;
-	$splitter->SplitVertically($self->{LeftPanel},$self->{RightPanel},$splitsize);
-
-	$sizer->Add($splitter,1,wxEXPAND);
-	$self->SetSizer($sizer);
-	$self->Layout;
+=cut
 }
 
-sub DisplayParserMenu {
-	my ($self,$queue_selection) = @_;
-	my $selection = $self->{QueueList}->GetSelection;
-	$self->{ParserNotebook}->SetSelection($selection);
-}
-
-sub DeleteParser {
+sub DeleteFromQueue {
 	my ($self) = @_;
-	my $selection = $self->{QueueList}->GetSelection;
-	$self->{QueueList}->Delete($selection);
-	$self->{ParserNotebook}->RemovePage($selection);
-	$self->{ParserNotebook}->Refresh;
-	if ($self->{ParserNotebook}->GetPageCount == 0) {
-		my $new_page = ParserMenu->new($self->{ParserNotebook});
-		$self->{ParserNotebook}->AddPage($new_page,"");
-	}
-	$self->Refresh;
 }
 
 sub NewProcessForQueue {
 	my ($self) = @_;
 	
-	my $page = $self->{ParserNotebook}->GetPage($self->{ParserNotebook}->GetSelection);
+	my $page = $self->{CurrentPage};
 	
 	if ($page->CheckProcess() == 0) {
 		$self->{Parent}->SetStatusText("Please Choose a Name for the Parsing Job");
@@ -2006,26 +2073,18 @@ sub NewProcessForQueue {
 	}
 }
 
-sub NewPage {
-	my ($self) = @_;
-	my $new_page = ParserMenu->new($self->{ParserNotebook});
-	my $NumSelections = $self->{ParserNotebook}->GetPageCount;
-	$self->{ParserNotebook}->AddPage($new_page,"");
-	$self->{ParserNotebook}->SetSelection($NumSelections);
-}
-
 sub AddProcessQueue {
 	my ($self) = @_;
-	my $count = $self->{QueueList}->GetCount;
-	my $label = $self->{ParserNotebook}->GetPageText($self->{ParserNotebook}->GetSelection);
-	$self->{QueueList}->InsertItems([$label],$count);
+	#my $count = $self->{QueueList}->GetCount;
+	#my $label = $self->{ParserNotebook}->GetPageText($self->{ParserNotebook}->GetSelection);
+	#$self->{QueueList}->InsertItems([$label],$count);
 }
 
 sub GenerateParsers {
 	my ($self) = @_;
-	my $count = $self->{QueueList}->GetCount;
+	my $count = @{$self->{ParserPanels}};
 	for (my $i=0; $i<$count; $i++) {
-		my $page = $self->{ParserNotebook}->GetPage($i);
+		my $page = $self->{ParserPanels}->[$count];
 		my $label = $page->{ParserNameTextCtrl}->GetValue;
 		$self->GenerateParser($label,$page);
 	}
