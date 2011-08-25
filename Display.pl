@@ -41,7 +41,6 @@ sub SetTaxDump {
 	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
 	mkdir($self->{TaxDump});
 	chdir($self->{TaxDump});
-	#$self->DownloadNCBITaxonomies();
 	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
 	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
 }
@@ -1060,21 +1059,20 @@ sub DisplayTextInfo {
 	my $width = $size->GetWidth();
 	my $height = $size->GetHeight();
 	$renderer->SetDC($dc);
-	$renderer->SetSize($width,$height/2);
+	$renderer->SetSize($width,$height);
 	$renderer->SetHtmlText("
 	<html>
   	<head>
     <title></title>
   	</head>
   	<body>
-    <h1>$self->{Query}</h1>
-    <br>
-    <p>Full Description: $self->{Description}</p>
-    <p>Accession Number: $self->{GI}</p>
-  	</body>
-	</html>");
-	$renderer->Render(1,1,[]);
-	
+  	<a href=\"blastgraphic.html\"></a>
+    </body> 
+    </head>
+    </html>
+    ",
+    $control->{CurrentDirectory});
+	my $from = $renderer->Render(1,1,[]);
 	$self->Refresh;
 	$self->Layout;
 }
@@ -1124,10 +1122,29 @@ sub MainDisplay {
 	
 	$self->CompareTables($table_names);
 	$self->SetSizer($sizer);
-	$self->{InfoPanel}->Layout;
-	$self->Layout;
-	$self->OnSize(0);
 	EVT_SIZE($self,\&OnSize);
+}
+
+# For resizing the columns of the list controls
+sub OnSize {
+	my ($self,$event) = @_;
+
+	my $size = $self->{ResultHitListCtrl}->GetClientSize();
+	my $width = $size->GetWidth();
+	$self->{ResultHitListCtrl}->SetColumnWidth(0,$width*2/3);
+	$self->{ResultHitListCtrl}->SetColumnWidth(1,$width/3);
+	
+	my $size = $self->{ResultQueryListCtrl}->GetClientSize();
+	my $width = $size->GetWidth();
+	$self->{ResultQueryListCtrl}->SetColumnWidth(0,$width*1/3);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(1,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(2,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(3,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(4,$width/6);
+	
+	$self->{InfoPanel}->Layout;
+	$self->Refresh;
+	$self->Layout;
 }
 
 sub CompareTables {
@@ -1217,26 +1234,6 @@ sub BindInfoPaint {
 	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore,$descr,$hitname,$hlength) = 
 	@{ $control->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
 	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh);
-}
-
-# For resizing the columns of the list controls
-sub OnSize {
-	my ($self,$event) = @_;
-	my $size = $self->{ResultHitListCtrl}->GetClientSize();
-	my $width = $size->GetWidth();
-	$self->{ResultHitListCtrl}->SetColumnWidth(0,$width*2/3);
-	$self->{ResultHitListCtrl}->SetColumnWidth(1,$width/3);
-	
-	my $size = $self->{ResultQueryListCtrl}->GetClientSize();
-	my $width = $size->GetWidth();
-	$self->{ResultQueryListCtrl}->SetColumnWidth(0,$width*1/3);
-	$self->{ResultQueryListCtrl}->SetColumnWidth(1,$width/6);
-	$self->{ResultQueryListCtrl}->SetColumnWidth(2,$width/6);
-	$self->{ResultQueryListCtrl}->SetColumnWidth(3,$width/6);
-	$self->{ResultQueryListCtrl}->SetColumnWidth(4,$width/6);
-	
-	$self->Refresh;
-	$self->Layout;
 }
 
 sub QCompare {
@@ -1417,6 +1414,7 @@ sub DisplayTable {
 	$self->{Sizer}->Add($self->{TableDisplay},1,wxEXPAND);
 	$self->Refresh;
 	$self->Layout;
+	$self->{TableDisplay}->OnSize(0);
 	$self->Show;
 }
 
@@ -1890,13 +1888,9 @@ sub SetPanels {
 	$self->{LeftPanel} = Wx::Panel->new($splitter,-1);
 	$self->{LeftPanel}->SetBackgroundColour($turq);
 	my $leftsizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $qtextsizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $qtextsizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $queuetext = Wx::StaticText->new($self->{LeftPanel},-1,"Queue");
-	$qtextsizer_h->Add($queuetext,1,wxCENTER);
-	$qtextsizer_v->Add($qtextsizer_h,1,wxCENTER);
 	
-	my $listsizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $listlabel = Wx::StaticBox->new($self->{LeftPanel},-1,"Queue");
+	my $listsizer = Wx::StaticBoxSizer->new($listlabel,wxVERTICAL);
 	$self->{QueueList} = Wx::ListBox->new($self->{LeftPanel},-1,wxDefaultPosition(),wxDefaultSize());
 	$listsizer->Add($self->{QueueList},1,wxEXPAND);
 	
@@ -1907,7 +1901,6 @@ sub SetPanels {
 	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
 	EVT_BUTTON($self->{LeftPanel},$run_button,sub{$self->Run()});
 	
-	$leftsizer->Add($qtextsizer_v,1,wxCENTER|wxEXPAND);
 	$leftsizer->Add($listsizer,7,wxEXPAND);
 	$leftsizer->Add($button_sizer_v,1,wxCENTER);
 	
@@ -2364,6 +2357,17 @@ sub InitializeResultManager {
 	$self->DisplayPanel($self->{ResultsPanel});
 }
 
+sub TaxonomyFileUpdater {
+	my ($self,$event) = @_;
+	my $update_dialog = OkDialog->new($self,"Update NCBI Taxonomy Files","New files will be downloaded from:
+	ftp://ftp.ncbi.nih.gov/pub/taxonomy/ 
+	Proceed?");
+	if ($update_dialog->ShowModal == wxID_OK) {
+		$control->DownloadNCBITaxonomies();
+	}
+	$update_dialog->Destroy;
+}
+
 sub TopMenu {
 	my ($self) = @_;
 
@@ -2371,10 +2375,13 @@ sub TopMenu {
 	my $newblast = $self->{FileMenu}->Append(101,"New Parser");
 	my $manage = $self->{FileMenu}->Append(102,"Manage Results");
 	$self->{FileMenu}->AppendSeparator();
-	my $close = $self->{FileMenu}->Append(103,"Quit");
+	my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
+	$self->{FileMenu}->AppendSeparator();
+	my $close = $self->{FileMenu}->Append(104,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
 	EVT_MENU($self,102,\&InitializeResultManager);
-	EVT_MENU($self,103,sub{$self->Close(1)});
+	EVT_MENU($self,103,\&TaxonomyFileUpdater);
+	EVT_MENU($self,104,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
 	my $table = $viewmenu->Append(201,"Table");
