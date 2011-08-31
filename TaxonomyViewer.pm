@@ -17,6 +17,7 @@ use Wx::Event qw(EVT_MOTION);
 sub new {
 	my ($class,$parent,$x,$y,$trees,$title) = @_;
 	my $self = $class->SUPER::new($parent,-1);
+	$self->{Bitmap} = Wx::Bitmap->new(1,1,-1);
 	$self->{Trees} = $trees;
 	$self->{NodeToTree} = ();
 	$self->{Title} = $title;

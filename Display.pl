@@ -1,4 +1,4 @@
-use Wx::Perl::Packager;
+use DBI();
 use strict;
 use Wx;
 use Parser;
@@ -47,6 +47,9 @@ sub SetTaxDump {
 
 sub DownloadNCBITaxonomies {
 	my $self = shift;
+	
+	## errors: what if no connection? File does not exist?
+	
 	my $url = "ftp://ftp.ncbi.nih.gov/pub/taxonomy/";
 	my $file = "taxdump.tar.gz";
 	getstore("$url/$file",$file);
@@ -336,6 +339,15 @@ sub MakeColorPrefsFolder {
 sub CreateDatabase {
 	my ($self) = @_;
 	chdir($self->{Results});
+	#$self->{Connection} = DBI->connect("dbi:mysql:database=PACT;host=localhost","","") or die("Cannot open");
+=cut
+	eval {
+		$self->{Connection} = DBI->connect("DBD:mysql:Results");
+	};
+	if ($@) {
+		$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
+	}
+=cut
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 }
@@ -513,7 +525,7 @@ sub TreeBox {
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 
 	my $tax_view_panel = Wx::Panel->new($self);
-	$tax_view_panel->SetBackgroundColour($blue);
+	#$tax_view_panel->SetBackgroundColour($blue);
 	my $tax_view_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $tax_file_label = Wx::StaticBox->new($tax_view_panel,-1,"Choose Taxonomy Results");
 	my $tax_file_label_sizer = Wx::StaticBoxSizer->new($tax_file_label,wxHORIZONTAL);
@@ -1039,10 +1051,11 @@ sub OnSize {
 }
 
 sub SetQuery {
-	my ($self,$query,$gi,$descr,$hlength,$qlength,$qstart,$qend,$hstart,$hend) = @_;
+	my ($self,$query,$gi,$descr,$hlength,$qlength,$qstart,$qend,$hstart,$hend,$bit) = @_;
 	$self->{Query} = "$query";
 	$self->{GI} = "$gi";
 	$self->{Description} = "$descr";
+	$self->{Bit} = $bit;
 	$self->{HLength} = "$hlength";
 	$self->{QLength} = "$qlength";
 	$self->{QStart} = "$qstart";
@@ -1054,25 +1067,147 @@ sub SetQuery {
 
 sub DisplayTextInfo {
 	my ($self,$dc) = @_;
-	my $renderer = Wx::HtmlDCRenderer->new();
 	my $size = $self->GetClientSize();
 	my $width = $size->GetWidth();
 	my $height = $size->GetHeight();
-	$renderer->SetDC($dc);
-	$renderer->SetSize($width,$height);
-	$renderer->SetHtmlText("
+	my $window = Wx::HtmlWindow->new($self,-1);
+	$window->SetSize($width,$height);
+	
+	my $image_path = $control->{CurrentDirectory} . $control->{PathSeparator} . "images" . $control->{PathSeparator};
+	my $score = $image_path . "score.gif";
+	my $white = $image_path . "white.gif";
+	my $black = $image_path . "black.gif";
+	my $green = $image_path . "green.gif";
+	my $purple = $image_path . "purple.gif";
+	my $red = $image_path . "red.gif";
+	my $blue = $image_path . "blue.gif";
+	my $zero = $image_path . "0.gif";
+	my $one = $image_path . "1.gif";
+	my $two = $image_path . "2.gif";
+	my $three = $image_path . "3.gif";
+	my $four = $image_path . "4.gif";
+	my $five = $image_path . "5.gif";
+	my $six = $image_path . "6.gif";
+	my $seven = $image_path . "7.gif";
+	my $eight = $image_path . "8.gif";
+	my $nine = $image_path . "9.gif";
+	my $scale = $image_path . "scale.gif";
+	my $q_no_scale = $image_path . "query_no_scale.gif";
+	
+	my $bit_color;
+	if ($self->{Bit} < 40) {
+		$bit_color = $black;
+	}
+	elsif ($self->{Bit} >= 40 and $self->{Bit} < 50) {
+		$bit_color = $blue;
+	}
+	elsif ($self->{Bit} >= 50 and $self->{Bit} < 80) {
+		$bit_color = $green;
+	}
+	elsif ($self->{Bit} >= 80 and $self->{Bit} < 200) {
+		$bit_color = $purple;
+	}
+	else {
+		$bit_color = $red;
+	}
+	
+	my $break = int($self->{QLength}/5.0);
+	sub GetScale {
+		my ($break) = @_;
+		my $html_string = "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"13\" src=$one width=\"10\"></td>";
+	    for (my $i=1; $i<=5 ; $i++) {
+	    	my $scale_number = $i*$break;
+	    	my $scale_length = 97 - 10*length($scale_number);
+	    	$html_string = $html_string . "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"$scale_length\"></td>";
+	    	for (my $j=0; $j<length($scale_number); $j++) {
+	    		my $digit = substr($scale_number,$j,1);
+	    		my $digit_file = $image_path . "$digit" . ".gif";
+	    		$html_string = $html_string . "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"13\" src=$digit_file width=\"10\"></td>";
+	    	}
+	    }
+		return $html_string;
+	}
+	
+	$window->SetPage("
 	<html>
   	<head>
     <title></title>
   	</head>
   	<body>
-  	<a href=\"blastgraphic.html\"></a>
-    </body> 
+  	<h1>$self->{Query}</h1>
+  	<p>GI: $self->{GI}</p>
+  	<p>Description: $self->{Description}</p>
+  	<br>
+  	<br>
+  	<center>
+	<table border=\"1\" bordercolordark=\"#0000FF\" bordercolorlight=\"#0000FF\" cellpadding=\"10\" cellspacing=\"0\">
+	    <tr>
+	        <td align=\"LEFT\" valign=\"CENTER\">
+	            <table border=\"0\" cellpadding=\"0\" cellspacing=\"1\"><tr><td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\">
+	        </td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"40\" src=$score width=\"500\"></td>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"1\">
+	    <tr>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$q_no_scale width=\"550\"></td>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"51\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>"
+	    . GetScale($break) .    
+	    "</tr>
+	</table>
+	<br>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>
+	        <td><img alt=\"\" height=\"4\" src=$white width=\"550\"></td>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"318\"></td>
+	        <td align=\"LEFT\" valign=\"CENTER\"><a href=\"#157696482\"><img alt=\"score 37\" border=\"0\" height=\"4\" src=$bit_color width=\"91\"></a></td>
+	    </tr>
+	</table>
+	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
+	    <tr>
+	        <td><img alt=\"\" height=\"4\" src=$white width=\"550\"></td>
+	    </tr>
+	</table>
+	</td>
+	</tr>
+	</table>
+	</center>
+  	
+  	
+    </body>
     </head>
     </html>
-    ",
-    $control->{CurrentDirectory});
-	my $from = $renderer->Render(1,1,[]);
+    ");
+
 	$self->Refresh;
 	$self->Layout;
 }
@@ -1086,18 +1221,18 @@ use Wx::Event qw(EVT_SIZE);
 use base 'Wx::Panel';
 
 sub new {
-	my ($class,$parent,$table_names) = @_;
+	my ($class,$parent,$table_names,$bit,$evalue) = @_;
 	my $self = $class->SUPER::new($parent,-1);
 	$self->{ResultHitListCtrl} = undef;
 	$self->{ResultQueryListCtrl} = undef;
 	$self->{QueryColumnHash} = ();
 	bless ($self,$class);
-	$self->MainDisplay($table_names);
+	$self->MainDisplay($table_names,$bit,$evalue);
 	return $self;
 }
 
 sub MainDisplay {
-	my ($self,$table_names) = @_;
+	my ($self,$table_names,$bit,$evalue) = @_;
 	my $sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $rightsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
@@ -1120,7 +1255,7 @@ sub MainDisplay {
 	$sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
 	$sizer->Add($rightsizer,3,wxEXPAND);
 	
-	$self->CompareTables($table_names);
+	$self->CompareTables($table_names,$bit,$evalue);
 	$self->SetSizer($sizer);
 	EVT_SIZE($self,\&OnSize);
 }
@@ -1148,10 +1283,11 @@ sub OnSize {
 }
 
 sub CompareTables {
-	my ($self,$table_names) = @_;
+	my ($self,$table_names,$bit,$evalue) = @_;
+
 	$control->{Connection}->do("DROP TABLE IF EXISTS t");
 	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
-	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
 	for my $table(@$table_names) {
 		my $all_hits = $table . "_AllHits";
 		my $hit_info = $table . "_HitInfo";
@@ -1159,11 +1295,11 @@ sub CompareTables {
 		AND (
 		CASE (SELECT COUNT(query) FROM t WHERE t.query=$all_hits.query) WHEN 0
 		THEN
-		$all_hits.bit > 0
+		$all_hits.bit > ? AND $all_hits.evalue < ?
 		ELSE
-		$all_hits.bit >= (SELECT MAX(bit) FROM t WHERE t.query = $all_hits.query)
+		$all_hits.bit > ? AND $all_hits.evalue < ? AND $all_hits.bit >= (SELECT MAX(bit) FROM t WHERE t.query = $all_hits.query)
 		END
-		)");
+		)",undef,$bit,$evalue,$bit,$evalue);
 	}
 	$self->DisplayHits();
 }
@@ -1182,6 +1318,7 @@ sub DisplayHits {
 	my $i = 0;
 	for my $item(@$row) {
 		my $hitname = $item->[0];
+		next if ($hitname eq "");
 		my $count = $item->[1];
 		my $item = $self->{ResultHitListCtrl}->InsertStringItem($i,"");
 		$self->{ResultHitListCtrl}->SetItemData($item,$i);
@@ -1233,7 +1370,7 @@ sub BindInfoPaint {
 	my $query = $event->GetText;
 	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore,$descr,$hitname,$hlength) = 
 	@{ $control->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
-	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh);
+	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh,$bit);
 }
 
 sub QCompare {
@@ -1376,12 +1513,12 @@ sub MainDisplay {
 	
 	my $bit_label = Wx::StaticText->new($self->{MainPanel},-1,"Bit Score:");
 	$choice_sizer->Add($bit_label,1,wxCENTER);
-	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,'40.0');
+	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"40.0");
 	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
 	
 	my $e_label = Wx::StaticText->new($self->{MainPanel},-1,"E-value:");
 	$choice_sizer->Add($e_label,1,wxCENTER);
-	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,'0.001');
+	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"0.001");
 	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
 	$choice_wrap->Add($choice_sizer,3,wxCENTER);
 	
@@ -1400,17 +1537,22 @@ sub MainDisplay {
 	$self->{MainPanel}->SetSizer($leftpanelsizer);
 	$self->{MainPanel}->Layout;
 	$self->{Sizer}->Add($self->{MainPanel},1,wxEXPAND);
-	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable($self->{CompareListBox}->GetAllFiles)});
+	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable()});
 	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
 	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
 }
 
 sub DisplayTable {
-	my ($self,$table_names) = @_;
+	my ($self) = @_;
+	
+	my $table_names = $self->{CompareListBox}->GetAllFiles;
+	my $bit = scalar($self->{BitTextBox}->GetValue);
+	my $evalue = scalar($self->{EValueTextBox}->GetValue);
+	
 	$self->{MainPanel}->Hide;
 	$self->{Sizer}->Clear;
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TableDisplay} = TableDisplay->new($self,$table_names);
+	$self->{TableDisplay} = TableDisplay->new($self,$table_names,$bit,$evalue);
 	$self->{Sizer}->Add($self->{TableDisplay},1,wxEXPAND);
 	$self->Refresh;
 	$self->Layout;
@@ -1427,7 +1569,7 @@ sub DeleteCompareResult {
 	$delete_dialog->Destroy;
 }
 
-package ParserMenu;
+package ParserPanel;
 
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -1446,6 +1588,8 @@ sub new {
 	
 	my $self = $class->SUPER::new($parent,-1);
 	$self->SetBackgroundColour($turq);
+	
+	$self->{ParserMenu} = undef;
 
 	$self->{BlastFileTextBox} = undef;
 	$self->{FastaFileTextBox} = undef;
@@ -1468,7 +1612,7 @@ sub new {
 	$self->{SourceCombo} = undef;
 	
 	bless ($self,$class);
-	$self->NewParserMenu();
+	$self->ParserPanel();
 	$self->Layout;
 	return $self;
 }
@@ -1548,13 +1692,36 @@ sub BlastButtonEvent {
 	$self->{BlastFilePath} = $self->OpenDialogSingle($self->{BlastFileTextBox},'Choose Search File');
 }
 
+sub ParserPanel {
+	my ($self) = @_;
+	
+	$self->NewParserMenu();
+	
+	my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	$self->{QueueButton} = Wx::Button->new($self,-1,'Queue');
+	$button_sizer_h->Add($self->{QueueButton},1,wxCENTER);
+	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
+	
+	$menusizer->Add($self->{ParserMenu},8,wxEXPAND);
+	$menusizer->Add($button_sizer_v,1,wxEXPAND);
+	$self->SetSizer($menusizer);
+	$self->Layout;
+}
+
+
 sub NewParserMenu {
 
 	my ($self) = @_;
 	
+	$self->{ParserMenu} = Wx::Panel->new($self,-1);
+	$self->{ParserMenu}->SetBackgroundColour($turq);
+	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1);
+	$self->{OptionsNotebook} = Wx::Notebook->new($self->{ParserMenu},-1);
 	
 	$self->{OptionsNotebook}->SetBackgroundColour($turq);
 	
@@ -1572,7 +1739,9 @@ sub NewParserMenu {
 	
 	$self->{OptionsNotebook}->Layout;
 	$sizer->Add($self->{OptionsNotebook},1,wxEXPAND);
-	$self->SetSizer($sizer);
+	$self->{ParserMenu}->SetSizer($sizer);
+	
+	$self->{ParserMenu}->Layout;
 	
 }
 
@@ -1585,7 +1754,7 @@ sub InputFilesMenu {
 	
 	my $parser_label = Wx::StaticBox->new($filespanel,-1,"Parser Name");
 	my $parser_label_sizer = Wx::StaticBoxSizer->new($parser_label,wxHORIZONTAL);
-	my $parser_text = Wx::StaticText->new($filespanel,-1,"Choose a name for this parser: ");
+	my $parser_text = Wx::StaticText->new($filespanel,-1,"Choose a parser name: ");
 	$self->{ParserNameTextCtrl} = Wx::TextCtrl->new($filespanel,-1,"");
 	$parser_label_sizer->Add($parser_text,1,wxCENTER);
 	$parser_label_sizer->Add($self->{ParserNameTextCtrl},1,wxCENTER);
@@ -1821,10 +1990,10 @@ sub OutputMenu {
 	$text_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
 	$text_label_sizer->Add($text_sizer,1,wxEXPAND);
 	
-	my $table_label = Wx::StaticBox->new($add_panel,-1,"Database Table?");
+	my $table_label = Wx::StaticBox->new($add_panel,-1,"Add to Database?");
 	my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
 	my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"");
+	$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
 	$check_sizer->Add($self->{TableCheck},1,wxCENTER);
 	$table_label_sizer->Add($check_sizer,1,wxEXPAND);
 	
@@ -1905,7 +2074,7 @@ sub SetGeneratePanel {
 	$self->{GeneratePanel}->SetBackgroundColour($turq);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $listlabel = Wx::StaticBox->new($self->{GeneratePanel},-1,"Parsers");
+	my $listlabel = Wx::StaticBox->new($self->{GeneratePanel},-1,"Parsers in progress");
 	my $listsizer = Wx::StaticBoxSizer->new($listlabel,wxVERTICAL);
 	$self->{GenerateList} = Wx::ListBox->new($self->{GeneratePanel},-1,wxDefaultPosition(),wxDefaultSize());
 	$listsizer->Add($self->{GenerateList},1,wxEXPAND);
@@ -1923,7 +2092,7 @@ sub SetGeneratePanel {
 	$self->{GeneratePanel}->SetSizer($sizer);
 	$self->{GeneratePanel}->Layout;
 	
-	EVT_LISTBOX($self->{GeneratePanel},$self->{GenerateList},sub{$self->DisplayParserPanel($self->{GenerateList}->GetSelection)});
+	EVT_LISTBOX($self->{GeneratePanel},$self->{GenerateList},sub{$self->DisplayParserPanel($self->{GenerateList}->GetSelection); });
 	EVT_LISTBOX_DCLICK($self->{GeneratePanel},$self->{GenerateList},sub{$self->DeleteParser()});
 }
 
@@ -1971,8 +2140,14 @@ sub DeleteParser {
 				$self->DisplayParserPanel(0);
 			}
 			else {
-				$self->{GenerateList}->SetSelection($selection - 1);
-				$self->DisplayParserPanel($selection - 1);
+				if ($selection == 0) {
+					$self->{GenerateList}->SetSelection($selection);
+					$self->DisplayParserPanel($selection);
+				}
+				else {
+					$self->{GenerateList}->SetSelection($selection - 1);
+					$self->DisplayParserPanel($selection - 1);
+				}
 			}
 			$delete_panel->Destroy;
 			$self->Refresh;
@@ -1992,27 +2167,14 @@ sub UpdateParserLists {
 
 sub SetParserPanel {
 	my ($self) = @_;
-	$self->{ParserPanel} = Wx::Panel->new($self,-1);
-	$self->{ParserPanel}->SetBackgroundColour($turq);
-	my $parser_menu = ParserMenu->new($self->{ParserPanel});
-	my $menusizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{ParserPanel}->Layout;
 	
-	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $queue_button = Wx::Button->new($self->{ParserPanel},-1,'Queue');
-	$button_sizer_h->Add($queue_button,1,wxCENTER);
-	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
-	
-	$menusizer->Add($parser_menu,8,wxEXPAND);
-	$menusizer->Add($button_sizer_v,1,wxEXPAND);
-	$self->{ParserPanel}->SetSizer($menusizer);
+	$self->{ParserPanel} = ParserPanel->new($self);
 	
 	$self->UpdateParserLists();
 	
-	EVT_TEXT($parser_menu,$parser_menu->{ParserNameTextCtrl},
-	sub{$self->{GenerateList}->SetString($self->{GenerateList}->GetSelection,$parser_menu->{ParserNameTextCtrl}->GetValue);});
-	EVT_BUTTON($self->{ParserPanel},$queue_button,sub{$self->NewProcessForQueue()});
+	EVT_TEXT($self->{ParserPanel}->{ParserMenu},$self->{ParserPanel}->{ParserNameTextCtrl},
+	sub{$self->{GenerateList}->SetString($self->{GenerateList}->GetSelection,$self->{ParserPanel}->{ParserNameTextCtrl}->GetValue);});
+	EVT_BUTTON($self->{ParserPanel},$self->{ParserPanel}->{QueueButton},sub{$self->NewProcessForQueue()});
 }
 
 sub SetQueuePanel {
@@ -2032,7 +2194,7 @@ sub SetQueuePanel {
 	my $run_button = Wx::Button->new($self->{QueuePanel},1,"Run");
 	$button_sizer_h->Add($run_button,1,wxCENTER);
 	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
-	#EVT_BUTTON($self->{QueuePanel},$run_button,sub{$self->Run()});
+	EVT_BUTTON($self->{QueuePanel},$run_button,sub{$self->Run()});
 	
 	$sizer->Add($listsizer,7,wxEXPAND);
 	$sizer->Add($button_sizer_v,1,wxCENTER);
@@ -2040,33 +2202,49 @@ sub SetQueuePanel {
 	$self->{QueuePanel}->SetSizer($sizer);
 	$self->{QueuePanel}->Layout;
 	
-=cut
+	EVT_LISTBOX($self->{QueuePanel},$self->{QueueList},sub{$self->DisplayQueueParser($self->{QueueList}->GetSelection);});
+	EVT_LISTBOX_DCLICK($self->{QueuePanel},$self->{QueueList},sub{$self->DeleteFromQueue()});
+}
+
+sub DisplayQueueParser {
+	my ($self,$selection) = @_;
 	
-	EVT_LISTBOX($self->{QueuePanel},$self->{QueueList},sub{$self->DisplayParserMenu($self->{QueueList}->GetSelection)});
-	EVT_LISTBOX_DCLICK($self->{QueuePanel},$self->{QueueList},sub{
-		my $delete_dialog = OkDialog->new($parent,"Delete","Delete Parser?");
-		if ($delete_dialog->ShowModal == wxID_OK) {
-			$delete_dialog->Destroy;
-			$self->DeleteParser();
-		}
-		else {
-			$delete_dialog->Destroy;
-		}
-		});
-=cut
+	$self->{QueueList}->SetSelection($selection);
 }
 
 sub DeleteFromQueue {
 	my ($self) = @_;
+	my $delete_dialog = OkDialog->new($self->GetParent(),"Delete","Delete Queued Parser?");
+	if ($delete_dialog->ShowModal == wxID_OK) {
+		my $selection = $self->{QueueList}->GetSelection;
+		$self->{QueueList}->Delete($selection);
+		splice(@{$self->{Parsers}},$selection,1);
+		if (@{$self->{Parsers}} == 0) {
+			$self->{QueueList}->SetSelection(-1);
+		}
+		else {
+			if ($selection == 0) {
+					$self->{QueueList}->SetSelection($selection);
+					$self->DisplayQueueParser($selection);
+				}
+				else {
+					$self->{QueueList}->SetSelection($selection - 1);
+					$self->DisplayQueueParser($selection - 1);
+				}
+		}
+		$self->Refresh;
+		$self->Layout;
+	}
+	$delete_dialog->Destroy;
 }
 
 sub NewProcessForQueue {
 	my ($self) = @_;
 	
-	my $page = $self->{CurrentParserMenu};
+	my $page = $self->{CurrentPanel};
 	
 	if ($page->CheckProcess() == 0) {
-		$self->GetParent()->SetStatusText("Please Choose a Name for the Parsing Job");
+		$self->GetParent()->SetStatusText("Please Choose a Parsing Name");
 		return 0;	
 	}
 	elsif ($page->CheckProcess() == -1) {
@@ -2094,18 +2272,8 @@ sub AddProcessQueue {
 	my $count = $self->{QueueList}->GetCount;
 	my $label = $self->{GenerateList}->GetStringSelection;
 	$self->{QueueList}->InsertItems([$label],$count);
+	$self->GenerateParser($label,$self->{CurrentPanel});
 }
-
-sub GenerateParsers {
-	my ($self) = @_;
-	my $count = @{$self->{ParserPanels}};
-	for (my $i=0; $i<$count; $i++) {
-		#my $page = $self->{ParserPanels}->[$count];
-		#my $label = $page->{ParserNameTextCtrl}->GetValue;
-		#$self->GenerateParser($label,$page);
-	}
-}
-
 
 sub GenerateParser {
 	my ($self,$label,$page) = @_;
@@ -2113,7 +2281,7 @@ sub GenerateParser {
 	my $parser = BlastParser->new($label);
 	
 	$parser->SetBlastFile($page->{BlastFilePath});
-	$parser->SetSequences($page->{FastaFilePath});
+	$parser->SetSequenceFile($page->{FastaFilePath});
 	
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
@@ -2190,7 +2358,7 @@ sub RunParsers {
 		$parser->Parse($progress_dialog);
 	}
 	$progress_dialog->Destroy;
-	$self->{Parent}->SetStatusText("Done Parsing");
+	$self->GetParent()->SetStatusText("Done Parsing");
 }
 
 sub Run {
@@ -2201,10 +2369,9 @@ sub Run {
 		if ($count > 1) {
 			$count_string = "parsers";
 		}
-		my $run_dialog = OkDialog->new($self->{Parent},"Run Parsers","$count " . $count_string . " to run. Continue?");
+		my $run_dialog = OkDialog->new($self->GetParent(),"Run Parsers","$count " . $count_string . " to run. Continue?");
 		if ($run_dialog->ShowModal == wxID_OK) {
 			$run_dialog->Destroy;
-			$self->GenerateParsers();
 			$self->RunParsers();
 		}
 		else {
@@ -2212,7 +2379,7 @@ sub Run {
 		}
 	}
 	else {
-		$self->{Parent}->SetStatusText("No Files to Parse");
+		$self->GetParent()->SetStatusText("No Files to Parse");
 	}
 }
 
@@ -2483,6 +2650,7 @@ use base 'Wx::App';
 
 sub OnInit {
 	my $self = shift;
+	Wx::InitAllImageHandlers();
 	my $display = Display->new();
 	$display->TopMenu();
 	$display->Show();
