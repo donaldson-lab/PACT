@@ -1,4 +1,3 @@
-use Wx::Perl::Packager;
 use Wx;
 
 my $turq = Wx::Colour->new("TURQUOISE");
@@ -428,6 +427,7 @@ use Wx::Event qw(EVT_MENU);
 use Wx::Event qw(EVT_BUTTON);
 use Wx::Event qw(EVT_LEFT_DCLICK);
 use Wx::Event qw(EVT_LEFT_DOWN);
+use Wx::Event qw(EVT_SIZE);
 use Wx::Event qw(EVT_NOTEBOOK_PAGE_CHANGED);
 
 sub new {
@@ -439,8 +439,17 @@ sub new {
 	$self->Notebook($data,$titles,$labels);
 	$self->{Control} = $control;
 	bless $self,$class;
+	EVT_SIZE($self,\&OnSize);
 	$self->Show;
 	return $self;
+}
+
+sub OnSize {
+	my ($self,$event) = @_;
+	my $pie = $self->{Notebook}->GetPage($self->{Notebook}->GetSelection);
+	$pie->OnSize(0);
+	$self->Refresh;
+	$self->Layout;
 }
 
 sub Notebook {
@@ -462,7 +471,7 @@ sub Notebook {
 	$sizer->Add($self->{Notebook},1,wxEXPAND);
 	$self->SetSizer($sizer);
 	$self->{Notebook}->SetSelection($i-1);
-	$self->Layout;
+	$self->OnSize(0);
 }
 
 sub TopMenu {
