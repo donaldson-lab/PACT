@@ -1,4 +1,3 @@
-use DBI();
 use strict;
 use Wx;
 use Parser;
@@ -12,6 +11,7 @@ my $turq = Wx::Colour->new("TURQUOISE");
 my $blue = Wx::Colour->new(130,195,250);
 
 package ProgramControl;
+use DBI;
 use Cwd;
 use LWP::Simple;
 use Archive::Tar;
@@ -24,16 +24,28 @@ use File::Basename;
 sub new {
 	my $class = shift;
 	my $self = {
-		CurrentDirectory => getcwd,
+		CurrentDirectory => "/Users/virushunter1/PACT",
 	};
 	bless ($self,$class);
 	$self->GetPathSeparator();
+	$self->GetCurrentDirectory();
 	$self->MakeResultsFolder();
 	$self->ParserNames();
 	$self->CreateDatabase();
 	$self->MakeColorPrefsFolder();
 	$self->SetTaxDump();
 	return $self;
+}
+
+sub GetCurrentDirectory {
+	my ($self) = @_;
+	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS")) {
+		my $owner = getpwuid($>);
+		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
+	}
+	else {
+		
+	}
 }
 
 sub SetTaxDump {
@@ -339,15 +351,7 @@ sub MakeColorPrefsFolder {
 sub CreateDatabase {
 	my ($self) = @_;
 	chdir($self->{Results});
-	#$self->{Connection} = DBI->connect("dbi:mysql:database=PACT;host=localhost","","") or die("Cannot open");
-=cut
-	eval {
-		$self->{Connection} = DBI->connect("DBD:mysql:Results");
-	};
-	if ($@) {
-		$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
-	}
-=cut
+	#$self->{Connection} = DBI->connect("DBI:mysql:database=test;host=127.0.0.1","","") or die("Cannot open");
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 }
@@ -362,11 +366,11 @@ sub RemoveResultTables {
 
 sub GetPathSeparator {
 	my ($self) = @_;
-	my $os = $^O;
-	if (($os eq "darwin") or ($os eq "MacOS") or ($os eq "linux")) {
+	$self->{OS} = $^O;
+	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS") or ($self->{OS} eq "linux")) {
 		$self->{PathSeparator} = "/";
 	}
-	elsif ($os eq "MSWin32") {
+	elsif ($self->{OS} eq "MSWin32") {
 		$self->{PathSeparator} = "\/";
 	}
 	else {
@@ -1111,6 +1115,7 @@ sub DisplayTextInfo {
 		$bit_color = $red;
 	}
 	
+=cut
 	my $break = int($self->{QLength}/5.0);
 	sub GetScale {
 		my ($break) = @_;
@@ -1128,6 +1133,7 @@ sub DisplayTextInfo {
 	    }
 		return $html_string;
 	}
+=cut
 	
 	$window->SetPage("
 	<html>
@@ -1140,68 +1146,6 @@ sub DisplayTextInfo {
   	<p>Description: $self->{Description}</p>
   	<br>
   	<br>
-  	<center>
-	<table border=\"1\" bordercolordark=\"#0000FF\" bordercolorlight=\"#0000FF\" cellpadding=\"10\" cellspacing=\"0\">
-	    <tr>
-	        <td align=\"LEFT\" valign=\"CENTER\">
-	            <table border=\"0\" cellpadding=\"0\" cellspacing=\"1\"><tr><td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\">
-	        </td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"40\" src=$score width=\"500\"></td>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"1\">
-	    <tr>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$q_no_scale width=\"550\"></td>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"51\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"95\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"10\" src=$scale width=\"2\"></td>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>"
-	    . GetScale($break) .    
-	    "</tr>
-	</table>
-	<br>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>
-	        <td><img alt=\"\" height=\"4\" src=$white width=\"550\"></td>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"318\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><a href=\"#157696482\"><img alt=\"score 37\" border=\"0\" height=\"4\" src=$bit_color width=\"91\"></a></td>
-	    </tr>
-	</table>
-	<table border=\"0\" cellpadding=\"0\" cellspacing=\"0\">
-	    <tr>
-	        <td><img alt=\"\" height=\"4\" src=$white width=\"550\"></td>
-	    </tr>
-	</table>
-	</td>
-	</tr>
-	</table>
-	</center>
-  	
   	
     </body>
     </head>
@@ -1247,12 +1191,20 @@ sub MainDisplay {
 	$self->{ResultQueryListCtrl}->InsertColumn(3,"Bit Score");
 	$self->{ResultQueryListCtrl}->InsertColumn(4,"Percent Id");
 	
+	my $info_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{InfoPanel} = QueryTextDisplay->new($self);
+	$info_sizer->Add($self->{InfoPanel},1,wxEXPAND);
 	
-	$rightsizer->Add($self->{ResultQueryListCtrl},1,wxEXPAND);
-	$rightsizer->Add($self->{InfoPanel},1,wxEXPAND);
+	my $qlist_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$qlist_sizer->Add($self->{ResultQueryListCtrl},1,wxEXPAND);
 	
-	$sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
+	$rightsizer->Add($qlist_sizer,1,wxEXPAND);
+	$rightsizer->Add($info_sizer,1,wxEXPAND);
+	
+	my $hlist_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$hlist_sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
+	
+	$sizer->Add($hlist_sizer,1,wxEXPAND);
 	$sizer->Add($rightsizer,3,wxEXPAND);
 	
 	$self->CompareTables($table_names,$bit,$evalue);
@@ -1267,7 +1219,7 @@ sub OnSize {
 	my $size = $self->{ResultHitListCtrl}->GetClientSize();
 	my $width = $size->GetWidth();
 	$self->{ResultHitListCtrl}->SetColumnWidth(0,$width*2/3);
-	$self->{ResultHitListCtrl}->SetColumnWidth(1,$width/3);
+	$self->{ResultHitListCtrl}->SetColumnWidth(1,$width/2);
 	
 	my $size = $self->{ResultQueryListCtrl}->GetClientSize();
 	my $width = $size->GetWidth();
@@ -1284,23 +1236,32 @@ sub OnSize {
 
 sub CompareTables {
 	my ($self,$table_names,$bit,$evalue) = @_;
-
-	$control->{Connection}->do("DROP TABLE IF EXISTS t");
-	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
-	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER)");
+	
+	# This could probably be done much better
+	
+	$control->{Connection}->do("DROP TABLE IF EXISTS t_1");
+	$control->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER,ignore_query TEXT,qlength INTEGER,sequence TEXT)");
 	for my $table(@$table_names) {
 		my $all_hits = $table . "_AllHits";
 		my $hit_info = $table . "_HitInfo";
-		my $temp = $control->{Connection}->do("INSERT INTO t SELECT * FROM $all_hits LEFT OUTER JOIN $hit_info ON $hit_info.gi=$all_hits.gi 
-		AND (
-		CASE (SELECT COUNT(query) FROM t WHERE t.query=$all_hits.query) WHEN 0
-		THEN
-		$all_hits.bit > ? AND $all_hits.evalue < ?
-		ELSE
-		$all_hits.bit > ? AND $all_hits.evalue < ? AND $all_hits.bit >= (SELECT MAX(bit) FROM t WHERE t.query = $all_hits.query)
-		END
-		)",undef,$bit,$evalue,$bit,$evalue);
+		my $query_info = $table . "_QueryInfo";
+		my $temp = $control->{Connection}->do("INSERT INTO t_1 SELECT * FROM $all_hits INNER JOIN $hit_info ON $hit_info.gi=$all_hits.gi 
+		INNER JOIN $query_info ON $all_hits.query=$query_info.query
+		WHERE $all_hits.bit > $bit AND $all_hits.evalue < $evalue");
 	}
+	$control->{Connection}->do("DROP TABLE IF EXISTS t");
+	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,
+	description TEXT,hitname TEXT,hlength INTEGER,qlength INTEGER,sequence TEXT)");
+
+	$control->{Connection}->do("INSERT INTO t SELECT t_1.query,t_1.gi,t_1.rank,t_1.percent,t_1.bit,
+	t_1.evalue,t_1.starth,t_1.endh,t_1.startq,t_1.endq,
+	t_1.description,t_1.hitname,t_1.hlength,t_1.qlength,t_1.sequence FROM t_1 
+	INNER JOIN(SELECT t_1.query,MAX(t_1.bit) AS MaxBit FROM t_1 GROUP BY query) grouped 
+	ON t_1.query=grouped.query AND t_1.bit = grouped.MaxBit");
+
+	$control->{Connection}->do("DROP TABLE t_1");
 	$self->DisplayHits();
 }
 
@@ -1368,9 +1329,9 @@ sub DisplayQueries {
 sub BindInfoPaint {
 	my ($self,$event) = @_;
 	my $query = $event->GetText;
-	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore,$descr,$hitname,$hlength) = 
+	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore_gi,$descr,$hitname,$hlength,$ignore_query,$qlength,$sequence) = 
 	@{ $control->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
-	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,15,$startq,$endq,$starth,$endh,$bit);
+	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,$qlength,$startq,$endq,$starth,$endh,$bit);
 }
 
 sub QCompare {
@@ -1424,12 +1385,10 @@ sub Save {
 	my $hitname = $event->GetText;
 	my $dialog = Wx::FileDialog->new($self,"Save Queries to FASTA","","",".",wxFD_SAVE);
 	if ($dialog->ShowModal==wxID_OK) {
-		my $queries = $control->{Connection}->selectall_arrayref("SELECT query FROM " . $self->{CurrentTableName} . "_AllHits
-		WHERE hitname=?",undef,$hitname);
-		open(FASTA, '>>' . $dialog->GetPath . ".fasta");
+		my $queries = $control->{Connection}->selectall_arrayref("SELECT query FROM t WHERE hitname=?",undef,$hitname);
+		open(FASTA, '>>' . $dialog->GetPath);
 		for my $query(@$queries) {
-			my $sequence = $control->{Connection}->selectrow_arrayref("SELECT sequence FROM " . $self->{CurrentTableName} . "_QueryInfo
-			WHERE query=?",undef,$query->[0]);
+			my $sequence = $control->{Connection}->selectrow_arrayref("SELECT sequence FROM t WHERE query=?",undef,$query->[0]);
 			print FASTA ">" . $query->[0] . "\n";
 		  	print FASTA $sequence->[0] . "\n";
 		  	print FASTA "\n";
@@ -1507,7 +1466,8 @@ sub MainDisplay {
 	
 	my $paramsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $choice_wrap = Wx::BoxSizer->new(wxVERTICAL);
+	my $choice_text = Wx::StaticBox->new($self->{MainPanel},-1,"Filter Parameters: ");
+	my $choice_wrap = Wx::StaticBoxSizer->new($choice_text, wxVERTICAL);
 	$choice_wrap->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxEXPAND);
 	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
 	
@@ -1522,14 +1482,15 @@ sub MainDisplay {
 	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
 	$choice_wrap->Add($choice_sizer,3,wxCENTER);
 	
+	$paramsizer->Add($choice_wrap,1,wxCENTER);
+	
 	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $view_button = Wx::Button->new($self->{MainPanel},-1,"View");
 	$view_sizer_v->Add($view_button,1,wxCENTER);
 	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
-	$choice_wrap->Add($view_sizer_h,1,wxCENTER);
 	
-	$paramsizer->Add($choice_wrap,1,wxCENTER);
+	$paramsizer->Add($view_sizer_h,1,wxCENTER);
 	
 	$leftpanelsizer->Add($leftsizer,1,wxEXPAND);
 	$leftpanelsizer->Add($paramsizer,1,wxEXPAND);
@@ -1705,7 +1666,7 @@ sub ParserPanel {
 	$button_sizer_h->Add($self->{QueueButton},1,wxCENTER);
 	$button_sizer_v->Add($button_sizer_h,1,wxCENTER);
 	
-	$menusizer->Add($self->{ParserMenu},8,wxEXPAND);
+	$menusizer->Add($self->{OptionsNotebook},8,wxEXPAND);
 	$menusizer->Add($button_sizer_v,1,wxEXPAND);
 	$self->SetSizer($menusizer);
 	$self->Layout;
@@ -1721,8 +1682,7 @@ sub NewParserMenu {
 	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	$self->{OptionsNotebook} = Wx::Notebook->new($self->{ParserMenu},-1);
-	
+	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1); #self->{ParserMenu}
 	$self->{OptionsNotebook}->SetBackgroundColour($turq);
 	
 	my $filespanel = $self->InputFilesMenu();
@@ -1740,7 +1700,6 @@ sub NewParserMenu {
 	$self->{OptionsNotebook}->Layout;
 	$sizer->Add($self->{OptionsNotebook},1,wxEXPAND);
 	$self->{ParserMenu}->SetSizer($sizer);
-	
 	$self->{ParserMenu}->Layout;
 	
 }
@@ -1784,13 +1743,11 @@ sub InputFilesMenu {
 	EVT_BUTTON($filespanel,$fasta_button,sub{$self->{FastaFilePath} = $self->OpenDialogSingle($self->{FastaFileTextBox},'Choose FASTA File')});
 	
 	my $center_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxLEFT);
 	my $center_items = Wx::BoxSizer->new(wxVERTICAL);
 	$center_items->Add($parser_label_sizer,1,wxCENTER|wxEXPAND);
-	$center_items->Add($blast_label_sizer,1,wxCENTER|wxBOTTOM|wxEXPAND,15);
+	$center_items->Add($blast_label_sizer,1,wxCENTER|wxBOTTOM|wxEXPAND);
 	$center_items->Add($fasta_label_sizer,1,wxCENTER|wxEXPAND);
 	$center_sizer->Add($center_items,4,wxCENTER);
-	$center_sizer->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxRIGHT);
 	$filessizer->Add($center_sizer,3,wxCENTER|wxEXPAND,0);
 	$filespanel->SetSizer($filessizer);
 
@@ -1886,28 +1843,30 @@ sub TaxonomyMenu {
 	my $source_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $source_label_sizer = Wx::StaticBoxSizer->new($source_label,wxHORIZONTAL);
 	$self->{SourceCombo} = Wx::ComboBox->new($tax_panel,-1,"",wxDefaultPosition,wxDefaultSize,["Connection","Local Files"]);
+	$self->{SourceCombo}->SetValue("");
 	$source_label_sizer->Add($self->{SourceCombo},1,wxCENTER);
 	$source_sizer->Add($source_label_sizer,3,wxCENTER);
-	
-	my $rank_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $rank_label = Wx::StaticBox->new($tax_panel,-1,"Ranks: ");
-	my $rank_label_sizer = Wx::StaticBoxSizer->new($rank_label,wxHORIZONTAL);
-	my $rank_list = Wx::ListBox->new($tax_panel,-1,wxDefaultPosition,wxDefaultSize,["superkingdom","kingdom","phylum","class","subclass","infraclass","superorder","order",
-	"infraorder","suborder","superfamily","family","subfamily","tribe","subtribe","genus","subgenus","species","species group","species subgroup"]);
-	my $rank_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $rank_button = Wx::Button->new($tax_panel,-1,'Add');
-	$rank_button_sizer->Add($rank_button,1,wxCENTER);
-	$self->{RankList} = Wx::ListBox->new($tax_panel,-1);
 
-	$rank_label_sizer->Add($rank_list,1,wxEXPAND);
-	$rank_label_sizer->Add($rank_button_sizer,1,wxCENTER);
-	$rank_label_sizer->Add($self->{RankList},1,wxEXPAND);
-	$rank_sizer->Add($rank_label_sizer,1,wxCENTER);
+
+	#my $rank_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	#my $rank_label = Wx::StaticBox->new($tax_panel,-1,"Ranks: ");
+	#my $rank_label_sizer = Wx::StaticBoxSizer->new($rank_label,wxHORIZONTAL);
+	#y $rank_list = Wx::ListBox->new($tax_panel,-1,wxDefaultPosition,wxDefaultSize,["superkingdom","kingdom","phylum","class","subclass","infraclass","superorder","order",
+	#"infraorder","suborder","superfamily","family","subfamily","tribe","subtribe","genus","subgenus","species","species group","species subgroup"]);
+	#my $rank_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	#my $rank_button = Wx::Button->new($tax_panel,-1,'Add');
+	#$rank_button_sizer->Add($rank_button,1,wxCENTER);
+	#$self->{RankList} = Wx::ListBox->new($tax_panel,-1);
+
+	#rank_label_sizer->Add($rank_list,1,wxEXPAND);
+	#rank_label_sizer->Add($rank_button_sizer,1,wxCENTER);
+	#$rank_label_sizer->Add($self->{RankList},1,wxEXPAND);
+	#$rank_sizer->Add($rank_label_sizer,1,wxCENTER);
 	
-	EVT_BUTTON($self,$rank_button,sub{$self->{RankList}->Insert($rank_list->GetStringSelection,0)});
+	#EVT_BUTTON($self,$rank_button,sub{$self->{RankList}->Insert($rank_list->GetStringSelection,0)});
 	
 	my $root_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $root_label = Wx::StaticBox->new($tax_panel,-1,"Roots: ");
+	my $root_label = Wx::StaticBox->new($tax_panel,-1,"Roots (example: \"Viruses\"): ");
 	my $root_label_sizer = Wx::StaticBoxSizer->new($root_label,wxHORIZONTAL);
 	my $root_text = Wx::TextCtrl->new($tax_panel,-1,"");
 	my $root_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
@@ -1931,8 +1890,8 @@ sub TaxonomyMenu {
 	EVT_BUTTON($tax_panel,$clear_button,sub{$self->{RootList}->Clear;$self->{RankList}->Clear;$self->{SourceCombo}->SetValue("");});
 
 	$sizer->Add($source_sizer,1,wxEXPAND);
-	$sizer->Add($rank_sizer,2,wxEXPAND);
-	$sizer->Add($root_sizer,2,wxEXPAND);
+	#$sizer->Add($rank_sizer,1,wxEXPAND);
+	$sizer->Add($root_sizer,3,wxEXPAND);
 	$sizer->Add($clear_sizer_outer,1,wxEXPAND);
 	$tax_panel->SetSizer($sizer);
 
@@ -2414,11 +2373,11 @@ sub UpdateItems {
 sub ShowResults {
 	my ($self) = @_;
 	
-	$self->{ResultsCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT);
+	$self->{ResultsCtrl} = Wx::ListCtrl->new($self,-1,wxDefaultPosition,wxDefaultSize,wxLC_REPORT|wxLC_SINGLE_SEL);
 	$self->SetupListCtrl();
 	$self->Fill();
 	
-	$self->{Sizer}->Add($self->{ResultsCtrl},1,wxEXPAND);
+	$self->{Sizer}->Add($self->{ResultsCtrl},1,wxEXPAND|wxTOP|wxBOTTOM|wxRIGHT|wxLEFT,5);
 	$self->SetSizer($self->{Sizer});
 	
 	EVT_SIZE($self,\&OnSize);
@@ -2495,6 +2454,7 @@ sub DeleteDialog {
 }
 
 package Display;
+use Cwd;
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
