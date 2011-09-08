@@ -16,115 +16,6 @@ Add processes (see below) which each have a HitRoutine to handle BLAST query res
 use strict;
 
 package Parser;
-
-sub new {
-     
-     my ($class,$name,$internal_directory) = @_;
-     
-     my $self = {
-     	SequenceFile =>  undef,
-     	InternalDirectory => $internal_directory,
-     	In => undef, # The bioperl SearchIO object
-     	SequenceMemory => undef,
-     	Name => $name,
-     	DoneParsing => 0,
-     	NumSeqs => 0,
-	 };
-	 $self->{Processes} = ();
-     bless($self,$class);
-     return $self;
-
-}
-
-## Needs to be split.
-sub SetSequences {
-	my ($self,$fasta_name) = @_;
-	if (-e $fasta_name and $fasta_name ne "") {
-		my $inFasta = Bio::SeqIO->new(-file => $fasta_name , '-format' => 'Fasta');
-		while ( my $seq = $inFasta->next_seq) {
-	    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
-		}
-		$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
-		$self->{SequenceFile} = $fasta_name;
-		return 1;
-	}
-	else {
-		return 0;
-	}
-}
-
-sub AddProcess {
-	my ($self,$process) = @_;
-	push(@{$self->{Processes}},$process);
-}
-
-
-=head1 NAME
-
-FASTAParser
-
-=head1 SYNOPSIS
-
-my $fasta_parser = FASTAParser->new();
-
-=head1 DESCRIPTION
-
-Will be similar to BlastParser. Coming soon.
-
-=cut
-
-package FASTAParser;
-use Bio::SearchIO;
-use Bio::SeqIO;
-
-sub SetFASTAFile {
-	my ($self,$fasta_path) = @_;
-	$self->{FastaFile} = $fasta_path;
-	$self->{FastaIn} = Bio::SearchIO->new(-format => 'fasta', -file  => $fasta_path);
-}
-
-sub Parse {
-	
-	my ($self,$progress_dialog) = @_;
-	
-	my $count = 0;
-	
-	while( my $result = $self->{FastaIn}->next_result) {
-		$count++;
-		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
-		$progress_dialog->Update($progress_ratio);
-
-		for my $process(@{$self->{Processes}}) {
-			#$process->HitRoutine($hitdata);
-		}
-		
-	}
-	
-	$progress_dialog->Update(99,"Saving ...");
-	for my $process(@{$self->{Processes}}) {
-		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
-	}
-	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
-	}
-	$progress_dialog->Update(100);
-}
-
-=head1 NAME
-
-Parser
-
-=head1 SYNOPSIS
-
-my $blast_parser = BlastParser->new();
-
-=head1 DESCRIPTION
-
-This is a base class for parsing sequence similarity search output files.
-
-=cut
-
-package BlastParser;
 use Bio::SearchIO;
 use Bio::SeqIO;
 use XML::Simple;
@@ -135,19 +26,14 @@ sub new {
      my ($class,$label) = @_;
      
      my $self = {
-     	BlastFile => undef,
      	SequenceFile =>  undef,
-     	InternalDirectory => undef, # subfolder of Results folder where parsing results are stored
-     	In => undef,
+     	InternalDirectory => undef,
+     	In => undef, # The bioperl SearchIO object
      	SequenceMemory => undef,
-     	HasTaxonomy => 0, # to be deprecated ?
-     	Name => undef,
+     	Key => undef,
      	Label => $label,
      	DoneParsing => 0,
      	NumSeqs => 0,
-     	Bit =>40.0,
-     	Evalue => .001,
-     	Check => 0
 	 };
 	 $self->{Processes} = ();
      bless($self,$class);
@@ -157,66 +43,36 @@ sub new {
 
 sub prepare {
 	my ($self,$key,$internal_directory) = @_;
-	$self->{Name} = $key;
+	$self->{Key} = $key;
 	$self->{InternalDirectory} = $internal_directory;
 	for my $process(@{$self->{Processes}}) {
 		$process->prepare($self->{Label},$key);
 	}
+	$self->SetSequences();
 }
 
-sub SetBlastFile {
-	my ($self,$blast_name) = @_;
-	if (-e $blast_name and $blast_name ne "") {
-		eval {
-			my $xml = new XML::Simple;
-			my $data = $xml->XMLin($blast_name);
-			$self->{In} = new Bio::SearchIO(-format => 'blastxml', -file   => $blast_name);
-			$self->{BlastFile} = $blast_name;
-			return 1;
-		} or do {
-			eval {
-				$self->{In} = new Bio::SearchIO(-format => 'blast', -file   => $blast_name);
-				$self->{BlastFile} = $blast_name;
-				return 1;
-			} or do {
-				return 0;
-			};
-		};
-	}
-	else {
-		return 0;
-	}
-}
-
-## Needs to be split.
-sub SetSequences {
+sub SetSequenceFile {
 	my ($self,$fasta_name) = @_;
 	if (-e $fasta_name and $fasta_name ne "") {
-		my $inFasta = Bio::SeqIO->new(-file => $fasta_name , '-format' => 'Fasta');
-		while ( my $seq = $inFasta->next_seq) {
-	    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
-		}
-		$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
 		$self->{SequenceFile} = $fasta_name;
 		return 1;
 	}
-	else {
-		return 0;
-	}
+	return 0;
 }
 
-sub SetParameters {
-	my ($self,$bit,$evalue) = @_;
-	# check if values are numbers if ()
-	$self->{Bit} = $bit;
-	$self->{Evalue} = $evalue;
+sub SetSequences {
+	my ($self) = @_;
+	my $inFasta = Bio::SeqIO->new(-file => $self->{SequenceFile} , '-format' => 'Fasta');
+	while ( my $seq = $inFasta->next_seq) {
+    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
+	}
+	$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
 }
 
 sub AddProcess {
 	my ($self,$process) = @_;
 	push(@{$self->{Processes}},$process);
 }
-
 
 sub HitName {
 	my ($self,$description) = @_;
@@ -282,21 +138,24 @@ sub Parse {
 		$progress_dialog->Update($progress_ratio);
 
 		if (my $firsthit = $result->next_hit) {
-			my $firsthsp = $firsthit->next_hsp;
-			
-			## Check threshold parameters.
-			if ($firsthsp->evalue > $self->{Evalue}) {
-				next;
+			if (my $firsthsp = $firsthit->next_hsp) {
+				## Check threshold parameters.
+				if ($firsthsp->evalue > $self->{Evalue}) {
+					next;
+				}
+				
+				if ($firsthsp->bits < $self->{Bit}) {
+					next;
+				}
+				
+				## Get hit information.
+				my $hitdata = $self->HitData($result,$firsthit,$firsthsp);
+				
+				for my $process(@{$self->{Processes}}) {
+					$process->HitRoutine($hitdata);
+				}
 			}
-			
-			if ($firsthsp->bits < $self->{Bit}) {
-				next;
-			}
-			
-			my $hitdata = $self->HitData($result,$firsthit,$firsthsp);
-			
-			for my $process(@{$self->{Processes}}) {
-				$process->HitRoutine($hitdata);
+			else {
 			}
 		}
 		else {
@@ -307,12 +166,97 @@ sub Parse {
 	
 	$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
-		$process->EndRoutine($self->{Name},$self->{InternalDirectory});
+		$process->EndRoutine($self->{Key},$self->{InternalDirectory});
 	}
 	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($self->{Name},$self->{InternalDirectory});
+		$process->SaveRoutine($self->{Key},$self->{InternalDirectory});
 	}
 	$progress_dialog->Update(100);
+}
+
+
+=head1 NAME
+
+FASTAParser
+
+=head1 SYNOPSIS
+
+my $fasta_parser = FASTAParser->new();
+
+=head1 DESCRIPTION
+
+Will be similar to BlastParser. Coming soon.
+
+=cut
+
+package FASTAParser;
+use base ("Parser");
+
+sub SetFASTAFile {
+	my ($self,$fasta_path) = @_;
+	$self->{FastaFile} = $fasta_path;
+	$self->{In} = Bio::SearchIO->new(-format => 'fasta', -file  => $fasta_path);
+}
+
+=head1 NAME
+
+Parser
+
+=head1 SYNOPSIS
+
+my $blast_parser = BlastParser->new();
+
+=head1 DESCRIPTION
+
+This is a base class for parsing sequence similarity search output files.
+
+=cut
+
+package BlastParser;
+use base ("Parser");
+
+sub new {
+     
+     my ($class,$label) = @_;
+     
+     my $self = $class->SUPER::new($label);
+     $self->{BlastFile} = undef;
+     $self->{Bit} = 40.0;
+     $self->{Evalue} = .001;
+     
+     bless($self,$class);
+     return $self;
+
+}
+
+sub SetBlastFile {
+	my ($self,$blast_name) = @_;
+	if (-e $blast_name and $blast_name ne "") {
+		eval {
+			my $xml = new XML::Simple;
+			my $data = $xml->XMLin($blast_name);
+			$self->{In} = new Bio::SearchIO(-format => 'blastxml', -file   => $blast_name);
+			$self->{BlastFile} = $blast_name;
+			return 1;
+		} or do {
+			eval {
+				$self->{In} = new Bio::SearchIO(-format => 'blast', -file   => $blast_name);
+				$self->{BlastFile} = $blast_name;
+				return 1;
+			} or do {
+				return 0;
+			};
+		};
+	}
+	else {
+		return 0;
+	}
+}
+
+sub SetParameters {
+	my ($self,$bit,$evalue) = @_;
+	$self->{Bit} = scalar($bit);
+	$self->{Evalue} = scalar($evalue);
 }
 
 =head1 NAME
@@ -635,8 +579,8 @@ sub new {
 	my ($class,$dir,$taxonomy,$control) = @_;
 	my $self = $class->SUPER::new($dir,$control);
 	$self->{Taxonomy} = $taxonomy;
-	$self->{UnclassifiedDir} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "Unclassified";
-	mkdir($self->{UnclassifiedDir});
+	$self->{UnidentifiedDir} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "Unidentified";
+	mkdir($self->{UnidentifiedDir});
 	$self->{NameToPath} = ();
 	bless($self,$class);
     return $self;
@@ -660,8 +604,8 @@ sub PrintHit {
 
 sub PrintNotFound {
 	my ($self,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$sequence) = @_;
-	chdir($self->{UnclassifiedDir});
-	my $output = $self->{UnclassifiedDir} . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
+	chdir($self->{UnidentifiedDir});
+	my $output = $self->{UnidentifiedDir} . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
 	mkdir($output);
 	$self->PrintHitFile($output,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq);
 	$self->PrintFasta($output,$hitname,$query,$sequence);
@@ -743,7 +687,7 @@ sub GenerateBranch {
 	my ($self,$hitname,$id) = @_;
 	my $species = $self->GetSpeciesTaxon($hitname,$id);
 	$self->{IdToSpeciesTaxon}{$id} = $species;
-	$self->AddData($species->id);
+	$self->AddData($species->id,$hitname);
 	my @path_names = ($hitname);
 	while (my $parent = $self->{TaxonomyDB}->ancestor($species)) {
 		$species = $parent;
@@ -807,6 +751,7 @@ sub GetTrees {
 	            }
 			};
 			if ($@) {
+				print "Unable to merge or create tree $id\n"
 			};
 		}
 		if (defined $tree and $tree->number_nodes > 0) {
@@ -923,14 +868,19 @@ use base ("Process");
 sub new {
 	my ($class,$file_name,$control) = @_;
 	my $self = $class->SUPER::new($control);
-	$self->Generate($file_name);
+	$self->{FilePath} = $file_name;
 	bless($self,$class);
 	return $self;
 }
 
+sub prepare {
+	my ($self) = @_;
+	$self->Generate();
+}
+
 sub Generate {
-	my ($self,$file_name) = @_;
-	my $file_handle = open(CLASS,$file_name);
+	my ($self) = @_;
+	my $file_handle = open(CLASS,$self->{FilePath});
 	my $title = <CLASS>;
 	chomp $title;
 	$self->{Title} = $title;

@@ -23,9 +23,7 @@ use File::Basename;
 
 sub new {
 	my $class = shift;
-	my $self = {
-		CurrentDirectory => "/Users/virushunter1/PACT",
-	};
+	my $self = {};
 	bless ($self,$class);
 	$self->GetPathSeparator();
 	$self->GetCurrentDirectory();
@@ -1077,64 +1075,6 @@ sub DisplayTextInfo {
 	my $window = Wx::HtmlWindow->new($self,-1);
 	$window->SetSize($width,$height);
 	
-	my $image_path = $control->{CurrentDirectory} . $control->{PathSeparator} . "images" . $control->{PathSeparator};
-	my $score = $image_path . "score.gif";
-	my $white = $image_path . "white.gif";
-	my $black = $image_path . "black.gif";
-	my $green = $image_path . "green.gif";
-	my $purple = $image_path . "purple.gif";
-	my $red = $image_path . "red.gif";
-	my $blue = $image_path . "blue.gif";
-	my $zero = $image_path . "0.gif";
-	my $one = $image_path . "1.gif";
-	my $two = $image_path . "2.gif";
-	my $three = $image_path . "3.gif";
-	my $four = $image_path . "4.gif";
-	my $five = $image_path . "5.gif";
-	my $six = $image_path . "6.gif";
-	my $seven = $image_path . "7.gif";
-	my $eight = $image_path . "8.gif";
-	my $nine = $image_path . "9.gif";
-	my $scale = $image_path . "scale.gif";
-	my $q_no_scale = $image_path . "query_no_scale.gif";
-	
-	my $bit_color;
-	if ($self->{Bit} < 40) {
-		$bit_color = $black;
-	}
-	elsif ($self->{Bit} >= 40 and $self->{Bit} < 50) {
-		$bit_color = $blue;
-	}
-	elsif ($self->{Bit} >= 50 and $self->{Bit} < 80) {
-		$bit_color = $green;
-	}
-	elsif ($self->{Bit} >= 80 and $self->{Bit} < 200) {
-		$bit_color = $purple;
-	}
-	else {
-		$bit_color = $red;
-	}
-	
-=cut
-	my $break = int($self->{QLength}/5.0);
-	sub GetScale {
-		my ($break) = @_;
-		my $html_string = "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"50\"></td>
-	        <td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"13\" src=$one width=\"10\"></td>";
-	    for (my $i=1; $i<=5 ; $i++) {
-	    	my $scale_number = $i*$break;
-	    	my $scale_length = 97 - 10*length($scale_number);
-	    	$html_string = $html_string . "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"4\" src=$white width=\"$scale_length\"></td>";
-	    	for (my $j=0; $j<length($scale_number); $j++) {
-	    		my $digit = substr($scale_number,$j,1);
-	    		my $digit_file = $image_path . "$digit" . ".gif";
-	    		$html_string = $html_string . "<td align=\"LEFT\" valign=\"CENTER\"><img alt=\"\" height=\"13\" src=$digit_file width=\"10\"></td>";
-	    	}
-	    }
-		return $html_string;
-	}
-=cut
-	
 	$window->SetPage("
 	<html>
   	<head>
@@ -1205,7 +1145,7 @@ sub MainDisplay {
 	$hlist_sizer->Add($self->{ResultHitListCtrl},1,wxEXPAND);
 	
 	$sizer->Add($hlist_sizer,1,wxEXPAND);
-	$sizer->Add($rightsizer,3,wxEXPAND);
+	$sizer->Add($rightsizer,2,wxEXPAND);
 	
 	$self->CompareTables($table_names,$bit,$evalue);
 	$self->SetSizer($sizer);
@@ -1227,7 +1167,7 @@ sub OnSize {
 	$self->{ResultQueryListCtrl}->SetColumnWidth(1,$width/6);
 	$self->{ResultQueryListCtrl}->SetColumnWidth(2,$width/6);
 	$self->{ResultQueryListCtrl}->SetColumnWidth(3,$width/6);
-	$self->{ResultQueryListCtrl}->SetColumnWidth(4,$width/6);
+	$self->{ResultQueryListCtrl}->SetColumnWidth(4,$width/5);
 	
 	$self->{InfoPanel}->Layout;
 	$self->Refresh;
@@ -1317,7 +1257,7 @@ sub DisplayQueries {
 		$qmap{2}{$count} = $row->[5];
 		$self->{ResultQueryListCtrl}->SetItem($count,3,$row->[4]); #bit score
 		$qmap{3}{$count} = $row->[4];
-		$self->{ResultQueryListCtrl}->SetItem($count,4,$row->[3]); #percent identity
+		$self->{ResultQueryListCtrl}->SetItem($count,4,sprintf("%.2f",$row->[3])); #percent identity
 		$qmap{4}{$count} = $row->[3];
 		$count += 1;
 	}
@@ -1846,24 +1786,6 @@ sub TaxonomyMenu {
 	$self->{SourceCombo}->SetValue("");
 	$source_label_sizer->Add($self->{SourceCombo},1,wxCENTER);
 	$source_sizer->Add($source_label_sizer,3,wxCENTER);
-
-
-	#my $rank_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	#my $rank_label = Wx::StaticBox->new($tax_panel,-1,"Ranks: ");
-	#my $rank_label_sizer = Wx::StaticBoxSizer->new($rank_label,wxHORIZONTAL);
-	#y $rank_list = Wx::ListBox->new($tax_panel,-1,wxDefaultPosition,wxDefaultSize,["superkingdom","kingdom","phylum","class","subclass","infraclass","superorder","order",
-	#"infraorder","suborder","superfamily","family","subfamily","tribe","subtribe","genus","subgenus","species","species group","species subgroup"]);
-	#my $rank_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	#my $rank_button = Wx::Button->new($tax_panel,-1,'Add');
-	#$rank_button_sizer->Add($rank_button,1,wxCENTER);
-	#$self->{RankList} = Wx::ListBox->new($tax_panel,-1);
-
-	#rank_label_sizer->Add($rank_list,1,wxEXPAND);
-	#rank_label_sizer->Add($rank_button_sizer,1,wxCENTER);
-	#$rank_label_sizer->Add($self->{RankList},1,wxEXPAND);
-	#$rank_sizer->Add($rank_label_sizer,1,wxCENTER);
-	
-	#EVT_BUTTON($self,$rank_button,sub{$self->{RankList}->Insert($rank_list->GetStringSelection,0)});
 	
 	my $root_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $root_label = Wx::StaticBox->new($tax_panel,-1,"Roots (example: \"Viruses\"): ");
@@ -1890,7 +1812,6 @@ sub TaxonomyMenu {
 	EVT_BUTTON($tax_panel,$clear_button,sub{$self->{RootList}->Clear;$self->{RankList}->Clear;$self->{SourceCombo}->SetValue("");});
 
 	$sizer->Add($source_sizer,1,wxEXPAND);
-	#$sizer->Add($rank_sizer,1,wxEXPAND);
 	$sizer->Add($root_sizer,3,wxEXPAND);
 	$sizer->Add($clear_sizer_outer,1,wxEXPAND);
 	$tax_panel->SetSizer($sizer);
@@ -2131,7 +2052,7 @@ sub SetParserPanel {
 	
 	$self->UpdateParserLists();
 	
-	EVT_TEXT($self->{ParserPanel}->{ParserMenu},$self->{ParserPanel}->{ParserNameTextCtrl},
+	EVT_TEXT($self->{ParserPanel},$self->{ParserPanel}->{ParserNameTextCtrl},
 	sub{$self->{GenerateList}->SetString($self->{GenerateList}->GetSelection,$self->{ParserPanel}->{ParserNameTextCtrl}->GetValue);});
 	EVT_BUTTON($self->{ParserPanel},$self->{ParserPanel}->{QueueButton},sub{$self->NewProcessForQueue()});
 }
@@ -2215,8 +2136,9 @@ sub NewProcessForQueue {
 		return 0;	
 	}
 	elsif ($page->CheckProcess() == -3) {
-		$self->GetParent()->SetStatusText("Please Choose a Data Output Type");
-		return 0;
+		#$self->GetParent()->SetStatusText("Please Choose a Data Output Type");
+		#return 0;
+		$self->AddProcessQueue();
 	}
 	elsif ($page->CheckProcess() == 1) {
 		$self->AddProcessQueue();
@@ -2257,7 +2179,7 @@ sub GenerateParser {
 	
 	my $taxonomy;
 	if ($page->{SourceCombo}->GetValue ne "") {
-		my @ranks = $page->{RankList}->GetStrings;
+		my @ranks = ();
 		my @roots = $page->{RootList}->GetStrings;
 		if ($page->{SourceCombo}->GetValue eq "Connection") {
 			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$control);
@@ -2381,7 +2303,7 @@ sub ShowResults {
 	$self->SetSizer($self->{Sizer});
 	
 	EVT_SIZE($self,\&OnSize);
-	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultsCtrl},sub{$self->DeleteDialog($_[1]->GetItem()->GetId)});
+	EVT_LIST_ITEM_ACTIVATED($self,$self->{ResultsCtrl},sub{$self->DeleteDialog($_[1]->GetIndex());});
 }
 
 sub SetupListCtrl {
@@ -2592,10 +2514,14 @@ sub TopMenu {
 	EVT_MENU($self,201,\&InitializeTableViewer);
 	EVT_MENU($self,202,\&InitializePieMenu);
 	EVT_MENU($self,203,\&InitializeTreeMenu);
+	
+	my $helpmenu = Wx::Menu->new();
+	my $manual = $helpmenu->Append(301,"Contents");
 
 	my $menubar = Wx::MenuBar->new();
 	$menubar->Append($self->{FileMenu},"File");
 	$menubar->Append($viewmenu,"View");
+	$menubar->Append($helpmenu,"Help");
 	$self->SetMenuBar($menubar);
 
 	my $status_bar = Wx::StatusBar->new($self,-1);
