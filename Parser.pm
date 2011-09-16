@@ -231,25 +231,20 @@ sub new {
 
 sub SetBlastFile {
 	my ($self,$blast_name) = @_;
+	$self->{BlastFile} = $blast_name;
 	if (-e $blast_name and $blast_name ne "") {
 		eval {
 			my $xml = new XML::Simple;
 			my $data = $xml->XMLin($blast_name);
 			$self->{In} = new Bio::SearchIO(-format => 'blastxml', -file   => $blast_name);
-			$self->{BlastFile} = $blast_name;
-			return 1;
 		} or do {
 			eval {
 				$self->{In} = new Bio::SearchIO(-format => 'blast', -file   => $blast_name);
-				$self->{BlastFile} = $blast_name;
-				return 1;
 			} or do {
-				return 0;
 			};
 		};
 	}
 	else {
-		return 0;
 	}
 }
 
