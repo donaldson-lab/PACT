@@ -260,7 +260,7 @@ sub GetTaxonomyFiles {
 
     while (my $key = readdir(DIR)) {
     	next if ($key =~ m/^\./);
-		next unless (-d "$dir/$key");
+		next unless (-d "$dir/$key");  #needs to be path separator
 		opendir(RESULTDIR, "$dir/$key") or die $!;
 		while (my $file = readdir(RESULTDIR)) {
         	next if ($file =~ m/^\./ or not $file =~ m/\.tre/);
@@ -502,6 +502,7 @@ sub DeleteFile {
 	$self->{ListBox}->Delete($selection);
 }
 
+
 package TreeMenu;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -706,12 +707,7 @@ sub Display {
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $title_label = Wx::StaticBox->new($self,-1,"Chart Title");
-	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
-	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TitleBox} = Wx::TextCtrl->new($self,-1,"");
-	$title_sizer->Add($self->{TitleBox},1,wxEXPAND|wxCENTER);
-	$title_label_sizer->Add($title_sizer,1,wxEXPAND);
+	$self->AddTitleBox($sizer);
 	
 	my $level_sizer = Wx::BoxSizer->new(wxHORIZONTAL);	
 	my $tax_label = Wx::StaticBox->new($self,-1,"Select Level: ");
@@ -726,14 +722,16 @@ sub Display {
 	$fill_label_sizer->Add($self->{NodeBox},1,wxCENTER|wxEXPAND|wxTOP|wxLEFT|wxRIGHT,10);
 	$self->FillNodes($self->{NodeBox},$self->{DataReader});
 
-
-	$sizer->Add($title_label_sizer,1,wxEXPAND,10);
 	$sizer->Add($fill_label_sizer,3,wxCENTER|wxEXPAND,5);
 	$sizer->Add($tax_label_sizer,1,wxCENTER|wxEXPAND,5);
 
 	
 	$self->SetSizer($sizer);
 	$self->Layout;
+}
+
+sub AddTitleBox {
+	my ($self,$sizer) = @_;
 }
 
 sub CopyData {
@@ -763,6 +761,31 @@ sub FillNodes {
 		$count++;
 	}
 }
+
+package TaxonomyTypePanelTitle;
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_BUTTON);
+use Wx::Event qw(EVT_TEXT);
+use Wx::Event qw(EVT_CHECKBOX);
+use Wx::Event qw(EVT_COMBOBOX);
+use Wx::Event qw(EVT_LISTBOX);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+
+use base ("TaxonomyTypePanel");
+
+sub AddTitleBox {
+	my ($self,$sizer) = @_;
+	my $title_label = Wx::StaticBox->new($self,-1,"Chart Title");
+	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
+	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{TitleBox} = Wx::TextCtrl->new($self,-1,"");
+	$title_sizer->Add($self->{TitleBox},1,wxEXPAND|wxCENTER);
+	$title_label_sizer->Add($title_sizer,1,wxEXPAND);
+	
+	$sizer->Add($title_label_sizer,1,wxEXPAND,10);
+}
+
+
 
 package ClassificationPiePanel;
 
@@ -851,6 +874,7 @@ sub CenterDisplay {
 	$chart_button_sizer->Add($remove_button,1,wxCENTER|wxTOP,10);
 	$chart_button_sizer_outer->Add($chart_button_sizer,1,wxCENTER);
 	
+	$self->{FileBox}->{ListBox}->SetSelection(0);
 	$self->DisplayNew();
 	
 	my $chart_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
@@ -871,7 +895,7 @@ sub CenterDisplay {
 	$self->{CenterDisplay}->Add($chart_button_sizer_outer,1,wxCENTER|wxEXPAND,10);
 	$self->{CenterDisplay}->Add($chart_panel,3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
 	
-	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew();});
+	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew(); $self->{ChartBox}->{ListBox}->SetSelection(-1);});
 	EVT_LISTBOX($self,$self->{ChartBox}->{ListBox},sub{$self->DisplayPiePanel();});
 	EVT_BUTTON($self,$add_button,sub{$self->AddPieChart();});
 	EVT_BUTTON($self,$remove_button,sub{$self->DeleteChart();});
@@ -902,12 +926,8 @@ sub DeleteChart {
 			$self->{ChartBox}->{ListBox}->SetSelection(0);
 			$self->DisplayPiePanel();
 		}
-		while (my ($file_selection,$panel) = each %{$self->{NewPanels}}) {
-			if ($panel eq $pie_panel) {
-				$panel->Destroy;
-				delete $self->{NewPanels}{$file_selection};
-			}
-		}
+		$pie_panel->Destroy;
+		
 	}
 	$delete_dialog->Destroy;
 }
@@ -961,7 +981,6 @@ sub DisplayNew {
 		$self->{CenterDisplay}->Replace($self->{TypePanel},$new_panel);
 		$self->{CenterDisplay}->Layout;
 		$self->Refresh;
-		$self->{ChartBox}->{ListBox}->SetSelection(-1);
 	}
 	$self->{NewPanels}{$file_selection} = $new_panel;
 	$self->{TypePanel} = $new_panel;
@@ -1064,6 +1083,9 @@ sub GenerateChart {
 	if ($rank eq ""){
 		$rank = "species";
 	}
+	if ($node_name eq "") {
+		return 0;
+	}
 	
 	my $input_node = $node_name;
 	$input_node =~ s/^\s+//;
@@ -1093,7 +1115,104 @@ sub GenerateChart {
 
 sub NewTypePanel {
 	my ($self) = @_;
+	return TaxonomyTypePanelTitle->new($self,$self->{FileBox}->GetFile,$self->{FileBox}->{ListBox}->GetStringSelection);
+}
+
+package TreeViewPanel;
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_BUTTON);
+use Wx::Event qw(EVT_TEXT);
+use Wx::Event qw(EVT_CHECKBOX);
+use Wx::Event qw(EVT_COMBOBOX);
+use Wx::Event qw(EVT_LISTBOX);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+
+use base ("TaxonomyPiePanel");
+
+sub new {
+	my ($class,$parent) = @_;
+	my $self = $class->SUPER::new($parent,"Available Taxonomies");
+	$self->MainDisplay("Available Taxonomies");
+	return $self;
+}
+
+sub MainDisplay {
+	my ($self,$label) = @_;
+
+	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	$self->CenterDisplay($label);
+	
+	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
+	$self->{GeneratePanel}->SetBackgroundColour($turq);
+	
+	my $gbutton_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $gbutton_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $generate_button = Wx::Button->new($self->{GeneratePanel},-1,"Generate");
+	$gbutton_sizer_v->Add($generate_button,1,wxCENTER);
+	$gbutton_sizer_h->Add($gbutton_sizer_v,1,wxCENTER);
+	$self->{GeneratePanel}->SetSizer($gbutton_sizer_h);
+	
+	$sizer->Add($self->{CenterDisplay},7,wxEXPAND);
+	$sizer->Add($self->{GeneratePanel},1,wxEXPAND);
+	
+	$self->SetSizer($sizer);
+
+	$self->Layout;
+	
+	EVT_BUTTON($self->{GeneratePanel},$generate_button,sub{$self->TaxonomyText()});
+}
+
+sub CenterDisplay {
+
+	my ($self,$label) = @_;
+
+	$self->{CenterDisplay} = Wx::BoxSizer->new(wxHORIZONTAL);
+
+	my $file_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$file_panel->SetBackgroundColour($blue);
+	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	
+	my $file_list_label = Wx::StaticBox->new($file_panel,-1,$label);
+	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
+	$self->{FileBox} = FileBox->new($file_panel);
+	$self->FillObjects();
+	$file_list_label_sizer->Add($self->{FileBox}->{ListBox},1,wxEXPAND);
+	
+	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
+	$file_panel->Layout;
+	$file_panel->SetSizer($file_sizer);
+	
+	$self->{FileBox}->{ListBox}->SetSelection(0);
+	$self->DisplayNew();
+	
+	$self->{CenterDisplay}->Add($file_panel,3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
+	$self->{CenterDisplay}->Add($self->{TypePanel},5,wxTOP|wxBOTTOM|wxCENTER|wxEXPAND,10);
+	
+	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew();});
+}
+
+sub NewTypePanel {
+	my ($self) = @_;
 	return TaxonomyTypePanel->new($self,$self->{FileBox}->GetFile,$self->{FileBox}->{ListBox}->GetStringSelection);
+}
+
+sub TaxonomyText {
+	my ($self) = @_;
+	print "hello\n";
+}
+
+sub PrintSpecies {
+	my ($self,$tax_file,$result_name) = @_;
+	my @tax_file_split = split(/$control->{PathSeparator}/,$tax_file);
+	my $result_name = $control->GetParserName($tax_file_split[@tax_file_split - 2]);
+	my $names = $control->GetTaxonomyNodeNames($tax_file);
+	my $ranks = $control->GetTaxonomyNodeRanks($tax_file);
+	my $seqids = $control->GetTaxonomyNodeIds($tax_file);
+	my $values = $control->GetTaxonomyNodeValues($tax_file);
+	my $data_reader = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
+	my $dir = "/Users/virushunter1/Desktop/EpFuResults/By_Species";
+	$data_reader->PrintSummaryTextSpecies($dir,$result_name);
 }
 
 package QueryTextDisplay;
@@ -1276,6 +1395,7 @@ sub CompareTables {
 	$control->{Connection}->do("DROP TABLE IF EXISTS t_1");
 	$control->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER,ignore_query TEXT,qlength INTEGER,sequence TEXT)");
+
 	for my $table(@$table_names) {
 		my $all_hits = $table . "_AllHits";
 		my $hit_info = $table . "_HitInfo";
@@ -1284,6 +1404,7 @@ sub CompareTables {
 		INNER JOIN $query_info ON $all_hits.query=$query_info.query
 		WHERE $all_hits.bit > $bit AND $all_hits.evalue < $evalue");
 	}
+	
 	$control->{Connection}->do("DROP TABLE IF EXISTS t");
 	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,
@@ -1502,19 +1623,20 @@ sub MainDisplay {
 	
 	my $choice_text = Wx::StaticBox->new($self->{MainPanel},-1,"Filter Parameters: ");
 	my $choice_wrap = Wx::StaticBoxSizer->new($choice_text, wxVERTICAL);
-	$choice_wrap->Add(Wx::BoxSizer->new(wxVERTICAL),1,wxEXPAND);
 	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
 	
 	my $bit_label = Wx::StaticText->new($self->{MainPanel},-1,"Bit Score:");
 	$choice_sizer->Add($bit_label,1,wxCENTER);
-	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"40.0");
+	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"");
+	$self->{BitTextBox}->SetValue("40.0");
 	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
 	
 	my $e_label = Wx::StaticText->new($self->{MainPanel},-1,"E-value:");
 	$choice_sizer->Add($e_label,1,wxCENTER);
-	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"0.001");
+	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"");
+	$self->{EValueTextBox}->SetValue("0.001");
 	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
-	$choice_wrap->Add($choice_sizer,3,wxCENTER);
+	$choice_wrap->Add($choice_sizer,3,wxCENTER|wxEXPAND);
 	
 	$paramsizer->Add($choice_wrap,1,wxCENTER);
 	
@@ -1591,8 +1713,9 @@ sub new {
 	$self->{FastaFileTextBox} = undef;
 	$self->{DirectoryTextBox} = undef;
 	$self->{TableCheck} = undef;
-	$self->{ClassBox}->{ListBox} = undef;
-	$self->{FlagBox}->{ListBox} = undef;
+	$self->{DirectoryCheckBox} = undef;
+	$self->{ClassBox} = undef;
+	$self->{FlagBox} = undef;
 	$self->{BitTextBox} = undef;
 	$self->{EValueTextBox} = undef;
 	$self->{HSPRankTextBox} = undef;
@@ -1614,8 +1737,8 @@ sub new {
 }
 
 sub DirectoryChecked {
-	my ($self,$checkbox,$title) = @_;
-	my $checkbox_value = $checkbox->GetValue;
+	my ($self,$title) = @_;
+	my $checkbox_value = $self->{DirectoryCheckBox}->GetValue;
 	if ($checkbox_value == 0) {
 		$self->{DirectoryTextBox}->SetValue("");
 	}
@@ -1752,14 +1875,14 @@ sub InputFilesMenu {
 	$parser_label_sizer->Add($self->{ParserNameTextCtrl},1,wxCENTER);
 	
 	my $blastsizer = Wx::FlexGridSizer->new(1,2,15,15);
-	$blastsizer->AddGrowableCol(0,1);
+	$blastsizer->AddGrowableCol(0,0);
 	my $blast_label = Wx::StaticBox->new($filespanel,-1,"BLAST File:");
 	my $blast_label_sizer = Wx::StaticBoxSizer->new($blast_label,wxHORIZONTAL);
-	$self->{BlastFileTextBox} = Wx::TextCtrl->new($filespanel,-1,"",wxDefaultPosition,wxDefaultSize);
+	$self->{BlastFileTextBox} = Wx::TextCtrl->new($filespanel,-1,"");
 	$self->{BlastFileTextBox}->SetEditable(0);
 	my $blast_button = Wx::Button->new($filespanel,-1,'Browse');
-	$blastsizer->Add($self->{BlastFileTextBox},1,wxCENTER|wxEXPAND);
-	$blastsizer->Add($blast_button,1,wxCENTER,0);
+	$blastsizer->Add($self->{BlastFileTextBox},5,wxCENTER|wxEXPAND);
+	$blastsizer->Add($blast_button,1,wxCENTER);
 	$blast_label_sizer->Add($blastsizer,1,wxEXPAND);
 	EVT_BUTTON($filespanel,$blast_button,sub{$self->BlastButtonEvent()});
 	
@@ -1767,7 +1890,7 @@ sub InputFilesMenu {
 	$fastasizer->AddGrowableCol(0,1);
 	my $fasta_label = Wx::StaticBox->new($filespanel,-1,"FASTA File:");
 	my $fasta_label_sizer = Wx::StaticBoxSizer->new($fasta_label,wxHORIZONTAL);
-	$self->{FastaFileTextBox} = Wx::TextCtrl->new($filespanel,-1,"",wxDefaultPosition,wxDefaultSize);
+	$self->{FastaFileTextBox} = Wx::TextCtrl->new($filespanel,-1,"");
 	$self->{FastaFileTextBox}->SetEditable(0);
 	my $fasta_button = Wx::Button->new($filespanel,-1,'Browse');
 	$fastasizer->Add($self->{FastaFileTextBox},1,wxCENTER|wxEXPAND);
@@ -1943,10 +2066,10 @@ sub OutputMenu {
 	my $directory_title = Wx::StaticText->new($add_panel,-1,"Output Directory:");
 	$self->{DirectoryTextBox} = Wx::TextCtrl->new($add_panel,-1,"");
 	$self->{DirectoryTextBox}->SetEditable(0);
-	my $text_check = Wx::CheckBox->new($add_panel,-1,"");
+	$self->{DirectoryCheckBox} = Wx::CheckBox->new($add_panel,-1,"");
 	my $text_sizer = Wx::FlexGridSizer->new(1,3,20,20);
 	$text_sizer->AddGrowableCol(2,1);
-	$text_sizer->Add($text_check,1,wxCENTER);
+	$text_sizer->Add($self->{DirectoryCheckBox},1,wxCENTER);
 	$text_sizer->Add($directory_title,1,wxCENTER);
 	$text_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
 	$text_label_sizer->Add($text_sizer,1,wxEXPAND);
@@ -1958,7 +2081,7 @@ sub OutputMenu {
 	$check_sizer->Add($self->{TableCheck},1,wxCENTER);
 	$table_label_sizer->Add($check_sizer,1,wxEXPAND);
 	
-	EVT_CHECKBOX($add_panel,$text_check,sub{$self->DirectoryChecked($text_check,"Choose Directory")});
+	EVT_CHECKBOX($add_panel,$self->{DirectoryCheckBox},sub{$self->DirectoryChecked("Choose Directory")});
 	
 	$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
 	$add_sizer_v->Add($table_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
@@ -1995,6 +2118,7 @@ sub CopyData {
 	$self->{BlastFilePath} = $parser_panel->{BlastFilePath};
 	$self->{FastaFilePath} = $parser_panel->{FastaFilePath};
 	$self->{OutputDirectoryPath} = $parser_panel->{OutputDirectoryPath};
+	$self->{DirectoryCheckBox}->SetValue($parser_panel->{DirectoryCheckBox}->GetValue);
 	my @roots = ();
 	for (my $i=0; $i<$parser_panel->{RootList}->GetCount; $i++) {
 		push(@roots,$parser_panel->{RootList}->GetString($i));
@@ -2265,6 +2389,7 @@ sub AddProcessQueue {
 	my $queue_panel = ParserPanel->new($self);
 	$queue_panel->CopyData($self->{ParserPanel});
 	push(@{$self->{QueuedPanels}},$queue_panel);
+	EVT_TEXT($queue_panel,$queue_panel->{ParserNameTextCtrl},sub{$self->{QueueList}->SetString($self->{QueueList}->GetSelection,$queue_panel->{ParserNameTextCtrl}->GetValue);});
 }
 
 sub GenerateParser {
@@ -2516,6 +2641,7 @@ sub new {
 	$self->{ClassPiePanel} = undef;
 	$self->{TablePanel} = undef;
 	$self->{TreePanel} = undef;
+	$self->{TreeViewPanel} = undef;
 	$self->{ResultsPanel} = undef;
 	$self->{PanelArray} = ();
 	
@@ -2574,13 +2700,23 @@ sub InitializeClassPieMenu {
 	$self->DisplayPanel($self->{ClassPiePanel});
 }
 
-sub InitializeTreeMenu {
+sub InitializeTreeSaveMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{TreePanel}) {
 		$self->{TreePanel} = TreeMenu->new($self);
 		push(@{$self->{PanelArray}},$self->{TreePanel});	
 	}
 	$self->DisplayPanel($self->{TreePanel});
+}
+
+sub InitializeTreeViewMenu {
+	my ($self,$event) = @_;
+	if (not defined $self->{TreeViewPanel}) {
+		$self->{TreeViewPanel} = TreeViewPanel->new($self);
+		push(@{$self->{PanelArray}},$self->{TreeViewPanel});
+	}
+	$self->DisplayPanel($self->{TreeViewPanel});
+
 }
 
 sub InitializeTableViewer {
@@ -2644,7 +2780,7 @@ sub TopMenu {
 	EVT_MENU($self,101,\&OnProcessClicked);
 	EVT_MENU($self,102,\&InitializeResultManager);
 	EVT_MENU($self,103,\&TaxonomyFileUpdater);
-	EVT_MENU($self,104,\&InitializeTreeMenu);
+	EVT_MENU($self,104,\&InitializeTreeSaveMenu);
 	EVT_MENU($self,105,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
@@ -2653,10 +2789,11 @@ sub TopMenu {
 	$viewmenu->AppendSubMenu($pie,"Pie Charts");
 	$pie->Append(202,"Taxonomy");
 	$pie->Append(203,"Classification");
-	#my $tax = $viewmenu->Append(204,"Tree");
+	my $tax = $viewmenu->Append(204,"Tree");
 	EVT_MENU($self,201,\&InitializeTableViewer);
 	EVT_MENU($self,202,\&InitializeTaxPieMenu);
 	EVT_MENU($self,203,\&InitializeClassPieMenu);
+	EVT_MENU($self,204,\&InitializeTreeViewMenu);
 	
 	my $helpmenu = Wx::Menu->new();
 	my $manual = $helpmenu->Append(301,"Contents");
