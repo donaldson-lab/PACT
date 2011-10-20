@@ -699,11 +699,16 @@ sub Display {
 	my ($self,$tax_file) = @_;
 	$self->SetBackgroundColour($blue);
 	
-	my $names = $control->GetTaxonomyNodeNames($tax_file);
-	my $ranks = $control->GetTaxonomyNodeRanks($tax_file);
-	my $seqids = $control->GetTaxonomyNodeIds($tax_file);
-	my $values = $control->GetTaxonomyNodeValues($tax_file);
-	$self->{DataReader} = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
+	if ($tax_file =~ /.tre/) {
+		my $names = $control->GetTaxonomyNodeNames($tax_file);
+		my $ranks = $control->GetTaxonomyNodeRanks($tax_file);
+		my $seqids = $control->GetTaxonomyNodeIds($tax_file);
+		my $values = $control->GetTaxonomyNodeValues($tax_file);
+		$self->{DataReader} = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
+	}
+	else {
+		$self->{DataReader} = TaxonomyXML->new($tax_file);
+	}
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
@@ -754,7 +759,7 @@ sub CopyData {
 sub FillNodes {
 	my ($self,$listbox,$data_reader) = @_;
 	
-	my $nodes = $data_reader->GetNodesAlphabetically();
+	my $nodes = $data_reader->GetNamesAlphabetically();
 	my $count = 0;
 	for my $node (@$nodes) {
 		$listbox->Insert($node,$count);
@@ -2458,14 +2463,13 @@ sub GenerateParser {
 			$parser->AddProcess($taxonomy);
 		}
 	}
-	
 	push(@{$self->{Parsers}},$parser);
 }
 
 sub RunParsers {
 	my ($self) = @_;
 	
-	my $progress_dialog = Wx::ProgressDialog->new("","",100,undef,wxSTAY_ON_TOP|wxPD_APP_MODAL);
+	my $progress_dialog = Wx::ProgressDialog->new("","",100,$self,wxSTAY_ON_TOP|wxPD_APP_MODAL);
 	for my $parser(@{$self->{Parsers}}) {
 		my $key = $control->AddParserName($parser->{Label});
 		my $dir = $control->CreateResultFolder($key);

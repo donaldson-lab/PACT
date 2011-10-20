@@ -232,6 +232,7 @@ sub new {
 sub SetBlastFile {
 	my ($self,$blast_name) = @_;
 	$self->{BlastFile} = $blast_name;
+	$self->{In} = new Bio::SearchIO(-format => 'blastxml', -file   => $blast_name);
 	if (-e $blast_name and $blast_name ne "") {
 		eval {
 			my $xml = new XML::Simple;
@@ -551,6 +552,7 @@ sub HitRoutine {
 	chdir($self->{OutputDirectory});
 	for my $flag (keys(%{$self->{Data}})) {
 		  if ($descr =~ /$flag/ig) {
+		  	  # print $self->{FlagDir} . "\n";
 			  $self->PrintHit($self->{FlagDir},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 			  last;
 		  }
@@ -763,7 +765,37 @@ sub SaveRoutine {
 	$self->SaveTrees($trees);
 }
 
-## add file format as parameter. Save trees in individual files.
+# This routine will be moved to TaxonomyData?
+sub SaveTrees {
+	my ($self,$trees) = @_;
+	for my $tree (@$trees) {
+		my $title = $tree->get_root_node()->node_name;
+		my $tree_key = $self->{Control}->AddTaxonomy($title);
+		my $temp_file = $tree_key . "_temp.xml";
+		open(my $temp_handle, ">>" . $temp_file);
+		my $temp_out = new Bio::TreeIO(-fh => $temp_handle, -format => 'phyloxml');
+		$temp_out->write_tree($tree);
+		$temp_out->DESTROY;
+		my $in = new Bio::TreeIO(-file => $temp_file, -format => 'phyloxml');
+		my $in_tree = $in->next_tree;
+		for my $node($in_tree->get_nodes) {
+			my $id = $node->id;
+			my $taxon = $tree->find_node($id);
+			my $name = $taxon->node_name;
+			my $rank = $taxon->rank;
+			my $value = $self->{Data}{$node->id};
+			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<taxonomy><scientific_name>$name</scientific_name><rank>$rank</rank></taxonomy>");
+			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<width>$value</width>");
+		}
+		open(my $handle, ">>" . $tree_key . ".xml");
+		my $out = new Bio::TreeIO(-fh => $handle, -format => 'phyloxml');
+		$out->write_tree($in_tree);
+		close $handle;
+		unlink($temp_file);
+	}
+}
+
+=cut
 sub SaveTrees {
 	my ($self,$trees) = @_;
 	tie(my %NAMES,'DB_File',"NAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
@@ -789,7 +821,9 @@ sub SaveTrees {
 	untie(%SEQIDS);
 	untie(%VALUES);
 }
+=cut
 
+# This routine will be moved to TaxonomyData
 sub PrintSummaryText {
 	my ($self,$dir) = @_;
 	
@@ -1129,6 +1163,184 @@ sub PieAllClassifiersData {
 	return $piedata;
 }
 
+
+package TaxonomyXML;
+
+sub new {
+	my ($class,$phyloxml_file) = @_;
+	my $self = {};
+	$self->{TreeIO} = new Bio::TreeIO(-file=>$phyloxml_file,-format=>'phyloxml');
+	$self->{Tree} = $self->{TreeIO}->next_tree;
+	bless ($self,$class);
+	$self->{RootName} = $self->GetName($self->{Tree}->get_root_node());
+	return $self;
+}
+
+sub PieDataNode {
+	my ($self,$sub_node_name,$rank) = @_;
+	my $sub_node = $self->FindNode($sub_node_name);
+	return $self->PieDataRank($sub_node,$rank);
+}
+
+sub PieDataRank {
+	my ($self,$sub_node,$rank) = @_;
+	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
+	if ($sub_node->descendent_count == 0) {
+		if ($self->GetRank($sub_node) eq $rank) {
+			push(@{$pie_data{"Names"}},$self->GetName($sub_node));
+			push(@{$pie_data{"Values"}},$self->GetValue($sub_node));
+			$pie_data{"Total"} += $self->GetValue($sub_node);
+		}
+		elsif ($rank eq "species" and $self->GetRank($sub_node->ancestor()) eq "species") {
+			push(@{$pie_data{"Names"}},$self->GetName($sub_node));
+			push(@{$pie_data{"Values"}},$self->GetValue($sub_node));
+			$pie_data{"Total"} += $self->GetValue($sub_node);
+		}
+	}
+	
+	for my $sub_sub_node($sub_node->get_all_Descendents) {
+		if ($self->GetRank($sub_sub_node) eq $rank){	
+			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
+			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
+			$pie_data{"Total"} += $self->GetValue($sub_sub_node);
+		}
+		elsif ($rank eq "species" and $self->GetRank($sub_sub_node->ancestor()) eq "species") {
+			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
+			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
+			$pie_data{"Total"} += $self->GetValue($sub_sub_node);
+		}
+	}
+	return \%pie_data;
+}
+
+sub GetTaxonomyAnnotation {
+	my ($self,$node,$get_key) = @_;
+	
+	my $ac = $node->annotation();
+	foreach my $key ( $ac->get_all_annotation_keys() ) {
+		if ($key eq "taxonomy") {
+			my @values = $ac->get_Annotations($key);
+			my $taxonomy = $values[0];
+			foreach my $key ( $taxonomy->get_all_annotation_keys()) {
+				if ($key eq $get_key) {
+					my @key_values = $taxonomy->get_Annotations($key);
+					foreach my $key_value(@key_values) {
+						my $ret_value = $key_value->display_text;
+						chomp $ret_value;
+						return $ret_value;
+					}
+				}
+			}
+		}
+    }
+}
+
+sub GetCladeAnnotation {
+	my ($self,$node,$get_key) = @_;
+	my $ac = $node->annotation();
+	foreach my $key ( $ac->get_all_annotation_keys() ) {
+		if ($key eq $get_key) {
+			my @values = $ac->get_Annotations($key);
+			foreach my $value(@values) {
+				my $ret_value = $value->display_text;
+				chomp $ret_value;
+				return $ret_value;
+			}
+		}
+	}
+	
+}
+
+sub GetID {
+	my ($self,$node) = @_;
+	$self->GetCladeAnnotation($node,"name");
+}
+
+sub GetName {
+	my ($self,$node) = @_;
+	return $self->GetTaxonomyAnnotation($node,"scientific_name");
+}
+
+sub GetRank {
+	my ($self,$node) = @_;
+	return $self->GetTaxonomyAnnotation($node,"rank");
+}
+
+sub GetValue {
+	my ($self,$node) = @_;
+	$self->GetCladeAnnotation($node,"width");
+}
+
+sub FindNode {
+	my ($self,$sub_node_name) = @_;
+	for my $node($self->{Tree}->get_nodes) {
+		if ($self->GetName($node) eq $sub_node_name) {
+			return $node;
+		}
+	}
+}
+
+sub GetNamesAlphabetically {
+	my ($self) = @_;
+	my @node_names = ();
+	for my $node($self->{Tree}->get_nodes) {
+		push(@node_names,$self->GetName($node));
+	}
+	my @alpha = (sort {lc($a) cmp lc($b)} @node_names);
+	return \@alpha;
+}
+
+sub GetNodesLevel {
+	my ($self,$level) = @_;
+	my @level_nodes = ();
+	for my $node($self->{Tree}->get_nodes) {
+		if ($self->GetRank($node) eq $level) {
+			push(@level_nodes,$self->GetRank($node));
+		}
+	}
+	return \@level_nodes;
+}
+
+#takes a BioPerl Tree (or "node");
+sub PrintSummaryTextSpecies {
+	my ($self,$dir,$result_name) = @_;
+	
+	chdir($dir);
+	
+	## BioPerl's depth routine does not seem to work well.
+	sub GetDepth {
+		my ($node) = @_;
+		my $depth = 0;
+		while (defined $node->ancestor) {
+			$depth++;
+			$node = $node->ancestor;
+		}
+		return $depth;
+	}
+	
+	my $root = $self->{Tree}->get_root_node;
+	open(TREE,'>>' . $result_name . "." . $self->GetName($root) . '.txt');
+	for my $node($self->{Tree}->get_nodes) {
+		next if ($node->descendent_count != 0);
+		print TREE $result_name . " " . $self->GetName($node) . ": " . $self->GetValue($node) . "\n";
+	}
+	close TREE;
+}
+
+
+=head1 NAME
+
+TaxonomyData
+
+=head1 SYNOPSIS
+
+=head1 DESCRIPTION
+
+This package reads data from the newick and db files on name, rank, seqid, and value found and turns it into
+a Bio::Tree.
+
+=cut
+
 package TaxonomyData;
 use Bio::Tree::Tree;
 use Bio::TreeIO;
@@ -1196,7 +1408,7 @@ sub FindNode {
 	}
 }
 
-sub GetNodesAlphabetically {
+sub GetNamesAlphabetically {
 	my ($self) = @_;
 	my @node_names = ();
 	for my $node($self->{Tree}->get_nodes) {
@@ -1204,6 +1416,43 @@ sub GetNodesAlphabetically {
 	}
 	my @alpha = (sort {lc($a) cmp lc($b)} @node_names);
 	return \@alpha;
+}
+
+sub GetNodesLevel {
+	my ($self,$level) = @_;
+	my @level_nodes = ();
+	for my $node($self->{Tree}->get_nodes) {
+		if ($self->{RANKS}{$node->id} eq $level) {
+			push(@level_nodes,$self->{RANKS}{$node->id});
+		}
+	}
+	return \@level_nodes;
+}
+
+#takes a BioPerl Tree (or "node");
+sub PrintSummaryTextSpecies {
+	my ($self,$dir,$result_name) = @_;
+	
+	chdir($dir);
+	
+	## BioPerl's depth routine does not seem to work well.
+	sub GetDepth {
+		my ($node) = @_;
+		my $depth = 0;
+		while (defined $node->ancestor) {
+			$depth++;
+			$node = $node->ancestor;
+		}
+		return $depth;
+	}
+	
+	my $root = $self->{Tree}->get_root_node;
+	open(TREE,'>>' . $result_name . "." . $self->{NAMES}{$root->id} . '.txt');
+	for my $node($self->{Tree}->get_nodes) {
+		next if ($node->descendent_count != 0);
+		print TREE $result_name . " " . $self->{NAMES}{$node->id} . ": " . $self->{VALUES}->{$node->id} . "\n";
+	}
+	close TREE;
 }
 
 
