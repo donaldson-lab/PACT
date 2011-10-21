@@ -627,11 +627,13 @@ sub Display {
 	my ($self,$class_file) = @_;
 	$self->SetBackgroundColour($blue);
 	
-	$self->{DataReader} = ClassificationXML->new($class_file);
+	if ($class_file ne "") {
+		$self->{DataReader} = ClassificationXML->new($class_file);
+	}
 	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $title_label = Wx::StaticBox->new($self,-1,"Chart Title");
+	my $title_label = Wx::StaticBox->new($self,-1,"Title");
 	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
 	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{TitleBox} = Wx::TextCtrl->new($self,-1,"");
@@ -641,7 +643,9 @@ sub Display {
 	my $fill_label = Wx::StaticBox->new($self,-1,"Choose Classifier");
 	my $fill_label_sizer = Wx::StaticBoxSizer->new($fill_label,wxVERTICAL);
 	$self->{ClassifierBox} = Wx::ListBox->new($self,-1,wxDefaultPosition(),wxDefaultSize(),[]);
-	$self->FillClassifiers($self->{ClassifierBox},$self->{DataReader});
+	if (defined $self->{DataReader}) {
+		$self->FillClassifiers($self->{ClassifierBox},$self->{DataReader});
+	}
 	$fill_label_sizer->Add($self->{ClassifierBox},5,wxCENTER|wxEXPAND);
 	
 	$sizer->Add($title_label_sizer,1,wxEXPAND|wxTOP,10);
@@ -661,6 +665,7 @@ sub FillClassifiers {
 		$listbox->Insert($classifier,$count);
 		$count++;
 	}
+	$self->Refresh;
 }
 
 sub CopyData {
@@ -706,7 +711,7 @@ sub Display {
 		my $values = $control->GetTaxonomyNodeValues($tax_file);
 		$self->{DataReader} = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
 	}
-	else {
+	elsif ($tax_file ne "") {
 		$self->{DataReader} = TaxonomyXML->new($tax_file);
 	}
 
@@ -725,7 +730,9 @@ sub Display {
 	my $fill_label_sizer = Wx::StaticBoxSizer->new($fill_label,wxVERTICAL);
 	$self->{NodeBox} = Wx::ListBox->new($self,-1,wxDefaultPosition(),wxDefaultSize(),[]);
 	$fill_label_sizer->Add($self->{NodeBox},1,wxCENTER|wxEXPAND|wxTOP|wxLEFT|wxRIGHT,10);
-	$self->FillNodes($self->{NodeBox},$self->{DataReader});
+	if (defined $self->{DataReader}) {
+		$self->FillNodes($self->{NodeBox},$self->{DataReader});
+	}
 
 	$sizer->Add($fill_label_sizer,3,wxCENTER|wxEXPAND,5);
 	$sizer->Add($tax_label_sizer,1,wxCENTER|wxEXPAND,5);
@@ -780,7 +787,7 @@ use base ("TaxonomyTypePanel");
 
 sub AddTitleBox {
 	my ($self,$sizer) = @_;
-	my $title_label = Wx::StaticBox->new($self,-1,"Chart Title");
+	my $title_label = Wx::StaticBox->new($self,-1,"Title");
 	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
 	my $title_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{TitleBox} = Wx::TextCtrl->new($self,-1,"");
@@ -807,7 +814,7 @@ use Fcntl;
 use DB_File;
 
 sub new {
-	my ($class,$parent,$label) = @_;
+	my ($class,$parent,$file_label,$group_label) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
 	$self->SetBackgroundColour($turq);
@@ -818,18 +825,21 @@ sub new {
 	$self->{PiePanels} = ();
 	$self->{NewPanels} = ();
 	
+	$self->{FileLabel} = $file_label;
+	$self->{GroupLabel} = $group_label;
+	
 	bless ($self,$class);
-	$self->MainDisplay($label);
+	$self->MainDisplay();
 	$self->Layout;
 	return $self;
 }
 
 sub MainDisplay {
-	my ($self,$label) = @_;
+	my ($self) = @_;
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	$self->CenterDisplay($label);
+	$self->CenterDisplay();
 	
 	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
 	$self->{GeneratePanel}->SetBackgroundColour($turq);
@@ -853,7 +863,7 @@ sub MainDisplay {
 
 sub CenterDisplay {
 
-	my ($self,$label) = @_;
+	my ($self) = @_;
 
 	$self->{CenterDisplay} = Wx::BoxSizer->new(wxHORIZONTAL);
 
@@ -861,11 +871,12 @@ sub CenterDisplay {
 	$file_panel->SetBackgroundColour($blue);
 	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	my $file_list_label = Wx::StaticBox->new($file_panel,-1,$label);
+	my $file_list_label = Wx::StaticBox->new($file_panel,-1,$self->{FileLabel});
 	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
+	my $browse_button = Wx::Button->new($file_panel,-1,"Browse");
 	$self->{FileBox} = FileBox->new($file_panel);
-	$self->FillObjects();
-	$file_list_label_sizer->Add($self->{FileBox}->{ListBox},1,wxEXPAND);
+	$file_list_label_sizer->Add($browse_button,1,wxCENTER);
+	$file_list_label_sizer->Add($self->{FileBox}->{ListBox},7,wxEXPAND);
 	
 	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
 	$file_panel->Layout;
@@ -879,14 +890,14 @@ sub CenterDisplay {
 	$chart_button_sizer->Add($remove_button,1,wxCENTER|wxTOP,10);
 	$chart_button_sizer_outer->Add($chart_button_sizer,1,wxCENTER);
 	
-	$self->{FileBox}->{ListBox}->SetSelection(0);
-	$self->DisplayNew();
+	$self->{EmptyPanel} = $self->NewTypePanel();
+	$self->{TypePanel} = $self->{EmptyPanel};
 	
 	my $chart_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
 	$chart_panel->SetBackgroundColour($blue);
 	my $chart_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	my $chart_list_label = Wx::StaticBox->new($chart_panel,-1,"Pie Charts");
+	my $chart_list_label = Wx::StaticBox->new($chart_panel,-1,$self->{GroupLabel});
 	my $chart_list_label_sizer = Wx::StaticBoxSizer->new($chart_list_label,wxVERTICAL);
 	$self->{ChartBox} = FileBox->new($chart_panel);
 	$chart_list_label_sizer->Add($self->{ChartBox}->{ListBox},1,wxEXPAND);
@@ -902,6 +913,7 @@ sub CenterDisplay {
 	
 	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew(); $self->{ChartBox}->{ListBox}->SetSelection(-1);});
 	EVT_LISTBOX($self,$self->{ChartBox}->{ListBox},sub{$self->DisplayPiePanel();});
+	EVT_BUTTON($self,$browse_button,sub{$self->LoadFile()});
 	EVT_BUTTON($self,$add_button,sub{$self->AddPieChart();});
 	EVT_BUTTON($self,$remove_button,sub{$self->DeleteChart();});
 }
@@ -917,7 +929,7 @@ sub AddPieChart {
 
 sub DeleteChart {
 	my ($self) = @_;
-	my $delete_dialog = OkDialog->new($self,"Delete","Remove Pie Chart?");
+	my $delete_dialog = OkDialog->new($self,"Delete","Remove " . $self->{ChartBox}->{ListBox}->GetStringSelection() . "?");
 	if ($delete_dialog->ShowModal == wxID_OK) {
 		my $selection = $self->{ChartBox}->{ListBox}->GetSelection();
 		$self->{ChartBox}->{ListBox}->Delete($selection);
@@ -932,7 +944,6 @@ sub DeleteChart {
 			$self->DisplayPiePanel();
 		}
 		$pie_panel->Destroy;
-		
 	}
 	$delete_dialog->Destroy;
 }
@@ -960,6 +971,27 @@ sub DisplayPiePanel {
 	$self->{FileBox}->{ListBox}->SetSelection(-1);
 }
 
+sub LoadFile {
+	my ($self) = @_;
+	my $dialog = 0;
+	my $file_label = "";
+	$dialog = Wx::FileDialog->new($self,"Choose Results");
+	if ($dialog->ShowModal==wxID_OK) {
+		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		for (my $i=@split - 1; $i>0; $i--) {
+			if ($i==@split - 2) {
+				$file_label = $split[$i] . $control->{PathSeparator} . $file_label;
+				last;
+			}
+			$file_label = $split[$i] . $file_label;
+		}
+	}
+	$self->{FileBox}->AddFile($dialog->GetPath,$file_label);
+	$self->{FileBox}->{ListBox}->SetSelection($self->{FileBox}->{ListBox}->GetCount - 1);
+	$self->DisplayNew();
+	
+}
+
 sub DisplayNew {
 	my ($self) = @_;
 	my $file_selection = $self->{FileBox}->{ListBox}->GetSelection;
@@ -970,6 +1002,7 @@ sub DisplayNew {
 	}
 	else {
 		$new_panel = $self->NewTypePanel();
+		$self->{NewPanels}{$file_selection} = $new_panel;
 	}
 	for my $panel(@{$self->{PiePanels}}) {
 		$panel->Hide;
@@ -982,26 +1015,19 @@ sub DisplayNew {
 			$panel->Hide;
 		}
 	}
-	if (keys %{$self->{NewPanels}} > 0) {
-		$self->{CenterDisplay}->Replace($self->{TypePanel},$new_panel);
-		$self->{CenterDisplay}->Layout;
-		$self->Refresh;
-	}
-	$self->{NewPanels}{$file_selection} = $new_panel;
+	$self->{CenterDisplay}->Replace($self->{TypePanel},$new_panel);
+	$self->{CenterDisplay}->Layout;
+	$self->Refresh;
 	$self->{TypePanel} = $new_panel;
+	if (defined $self->{EmptyPanel}) {
+		$self->{EmptyPanel}->Destroy;
+		$self->{EmptyPanel} = undef;
+	}
 }
 
 sub NewTypePanel {
 	my ($self) = @_;
 	return ClassificationTypePanel->new($self,$self->{FileBox}->GetFile,$self->{FileBox}->{ListBox}->GetStringSelection);
-}
-
-sub FillObjects {
-	my ($self) = @_;
-	$control->GetClassificationFiles($self->{FileBox});
-	if ($self->{FileBox}->{ListBox}->GetCount > 0) {
-		$self->{FileBox}->{ListBox}->SetSelection(0);
-	}
 }
 
 sub GenerateChart {
@@ -1136,7 +1162,7 @@ use base ("TaxonomyPiePanel");
 
 sub new {
 	my ($class,$parent) = @_;
-	my $self = $class->SUPER::new($parent,"Available Taxonomies");
+	my $self = $class->SUPER::new($parent,"Available Taxonomies","Taxonomies to View");
 	$self->MainDisplay("Available Taxonomies");
 	return $self;
 }
@@ -1168,35 +1194,6 @@ sub MainDisplay {
 	EVT_BUTTON($self->{GeneratePanel},$generate_button,sub{$self->TaxonomyText()});
 }
 
-sub CenterDisplay {
-
-	my ($self,$label) = @_;
-
-	$self->{CenterDisplay} = Wx::BoxSizer->new(wxHORIZONTAL);
-
-	my $file_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$file_panel->SetBackgroundColour($blue);
-	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	
-	my $file_list_label = Wx::StaticBox->new($file_panel,-1,$label);
-	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
-	$self->{FileBox} = FileBox->new($file_panel);
-	$self->FillObjects();
-	$file_list_label_sizer->Add($self->{FileBox}->{ListBox},1,wxEXPAND);
-	
-	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
-	$file_panel->Layout;
-	$file_panel->SetSizer($file_sizer);
-	
-	$self->{FileBox}->{ListBox}->SetSelection(0);
-	$self->DisplayNew();
-	
-	$self->{CenterDisplay}->Add($file_panel,3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
-	$self->{CenterDisplay}->Add($self->{TypePanel},5,wxTOP|wxBOTTOM|wxCENTER|wxEXPAND,10);
-	
-	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew();});
-}
-
 sub NewTypePanel {
 	my ($self) = @_;
 	return TaxonomyTypePanel->new($self,$self->{FileBox}->GetFile,$self->{FileBox}->{ListBox}->GetStringSelection);
@@ -1204,7 +1201,6 @@ sub NewTypePanel {
 
 sub TaxonomyText {
 	my ($self) = @_;
-	print "hello\n";
 }
 
 sub PrintSpecies {
@@ -2689,7 +2685,7 @@ sub OnProcessClicked {
 sub InitializeTaxPieMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{TaxPiePanel}) {
-		$self->{TaxPiePanel} = TaxonomyPiePanel->new($self,"Available Taxonomies");
+		$self->{TaxPiePanel} = TaxonomyPiePanel->new($self,"Taxonomy Results","Pie Charts");
 		push(@{$self->{PanelArray}},$self->{TaxPiePanel});	
 	}
 	$self->DisplayPanel($self->{TaxPiePanel});
@@ -2698,7 +2694,7 @@ sub InitializeTaxPieMenu {
 sub InitializeClassPieMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{ClassPiePanel}) {
-		$self->{ClassPiePanel} = ClassificationPiePanel->new($self,"Available Classifications");
+		$self->{ClassPiePanel} = ClassificationPiePanel->new($self,"Classification Results","Pie Charts");
 		push(@{$self->{PanelArray}},$self->{ClassPiePanel});	
 	}
 	$self->DisplayPanel($self->{ClassPiePanel});
