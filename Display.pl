@@ -7,7 +7,7 @@ use IO::File;
 use Cwd;
 
 # Global colors
-my $turq = Wx::Colour->new("SEA GREEN");
+my $green = Wx::Colour->new("SEA GREEN");
 my $blue = Wx::Colour->new("SKY BLUE");
 
 package ProgramControl;
@@ -28,7 +28,6 @@ sub new {
 	$self->GetPathSeparator();
 	$self->GetCurrentDirectory();
 	$self->MakeResultsFolder();
-	$self->ParserNames();
 	$self->CreateDatabase();
 	$self->MakeColorPrefsFolder();
 	$self->SetTaxDump();
@@ -39,7 +38,7 @@ sub GetCurrentDirectory {
 	my ($self) = @_;
 	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS")) {
 		my $owner = getpwuid($>);
-		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
+		$self->{CurrentDirectory} ="/Users/virushunter1/Desktop/pact_XML" ; # "/Users/" . $owner . "/PACT";
 	}
 	else {
 		
@@ -75,24 +74,9 @@ sub MakeResultsFolder {
 	mkdir $self->{Results};
 }
 
-sub CreateResultFolder {
-	my ($self,$parser_key) = @_;
-	my $internal_directory = $self->{Results} . $self->{PathSeparator} . $parser_key;
-	if (-d $internal_directory) {
-		rmtree($internal_directory);
-	}
-	mkdir($internal_directory);
-	$internal_directory;
-}
-
 sub DeleteResult {
 	my ($self,$key) = @_;
 	chdir($self->{Results});
-	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	if (defined $PARSERNAMES{$key}) {
-		$self->RemoveResultFolder($key);
-		delete $PARSERNAMES{$key};
-	}
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
 	if (defined $TABLENAMES{$key}) {
 		$self->RemoveResultTables($key);
@@ -100,75 +84,20 @@ sub DeleteResult {
 	}
 }
 
-## Gets the size of the results folder in megabytes
-sub GetDirSize {
-	my ($self,$key) = @_;
-	chdir($self->{Results});
-	my $size = 0;
-	opendir(DIR, $key) or die $!;
-
-    while (my $file = readdir(DIR)) {
-    	next if ($file =~ m/^\./);
-		my $file_path = $self->{Results} . $self->{PathSeparator} . $key . $self->{PathSeparator} . $file;
-		$size += -s $file_path;
-    }
-    close DIR;
-    my $mega = sprintf("%.1f",$size/1000000);
-	return "$mega MB";
-}
-
-sub RemoveResultFolder {
-	my ($self,$key) = @_;
-	chdir($self->{Results});
-	rmtree($key);
-}
-
-sub ParserNames {
-	my ($self) = @_;
-	chdir($self->{Results});
-	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-}
-
-sub AddParserName {
-	my ($self,$parser_name) = @_;
-	chdir($self->{Results});
-	# Assigns a unique identifier to a parser name. the identifier will be used as a Result folder name/ database table name.
-	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	my $name_key = $self->GenerateResultKey();
-	while (defined $PARSERNAMES{$name_key}) {
-		$name_key = $self->GenerateResultKey();
-	}
-	$PARSERNAMES{$name_key} = $parser_name;
-	return $name_key;
-}
-
-sub GetParserName {
-	my ($self,$key) = @_;
-	chdir($self->{Results});
-	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	$PARSERNAMES{$key};
-}
-
-sub GetParserNames {
-	my ($self) = @_;
-	chdir($self->{Results});
-	tie(my %PARSERNAMES,'DB_File',"PARSERNAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	return \%PARSERNAMES;
-}
-
 sub AddResultsBox {
 	my ($self,$box) = @_;
 	chdir($self->{Results});
-	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	while ( my ($key, $value) = each(%TABLENAMES) ) {
+	my $TABLENAMES = $self->GetTableNames();
+	while ( my ($key, $value) = each(%$TABLENAMES) ) {
 		$box->AddFile($key,$value);
 	}
 }
 
 sub AddTableName {
-	my ($self,$label,$key) = @_;
+	my ($self,$label) = @_;
 	chdir($self->{Results});
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
+	my $key = $self->GenerateTableKey();
 	$TABLENAMES{$key} = $label;
 }
 
@@ -179,7 +108,7 @@ sub GetTableNames {
 	return \%TABLENAMES;
 }
 
-sub GenerateResultKey {
+sub GenerateTableKey {
 	my ($self) = @_;
 	my @alpha = ("a".."z");
 	my @timeData = localtime(time);
@@ -192,153 +121,6 @@ sub GenerateResultKey {
 	}
 	$name_key = $name_key . "d" . $timeData[3] . "m" . $timeData[4] . "y" . $timeData[5];
 	return $name_key;
-}
-
-sub AddTaxonomy {
-	my ($self,$tax_name) = @_;
-	tie(my %TAXES,'DB_File',"TAXONOMIES.db",O_CREAT|O_RDWR,0644) or die "Cannot open Taxonomies: $!";
-	my $key = $self->GenerateTaxonomyKey();
-	while (defined $TAXES{$key}) {
-		$key = $self->GenerateTaxonomyKey();
-	}
-	$TAXES{$key} = $tax_name;
-	dbmclose(%TAXES);
-	return $key;
-}
-
-sub AddClassification {
-	my ($self,$class_name) = @_;
-	tie(my %CLASSES,'DB_File',"CLASSIFICATIONS.db",O_CREAT|O_RDWR,0644) or die "Cannot open Taxonomies: $!";
-	my $key = $self->GenerateClassificationKey();
-	while (defined $CLASSES{$key}) {
-		$key = $self->GenerateClassificationKey();
-	}
-	$CLASSES{$key} = $class_name;
-	dbmclose(%CLASSES);
-	return $key;
-}
-
-sub GenerateClassificationKey {
-	my ($self) = @_;
-	my @alpha = ("a".."z");
-	srand;
-	my $name_key = "C";
-	foreach (1..3) 
-	{    
-		my $rand = int(rand scalar(@alpha));
-		$name_key = $name_key . $alpha[$rand];
-	}
-	return $name_key;
-}
-
-sub GetClassificationLabel {
-	my ($self,$key,$parser_name) = @_;
-	chdir($self->{Results} . $self->{PathSeparator} . $parser_name);
-	tie(my %CLASSES,'DB_File',"CLASSIFICATIONS.db",O_CREAT|O_RDWR,0644) or die "$!";
-	my $label = $CLASSES{$key};
-	dbmclose(%CLASSES);
-	return $label;
-}
-
-sub GetTaxonomyLabel {
-	my ($self,$key,$parser_name) = @_;
-	chdir($self->{Results} . $self->{PathSeparator} . $parser_name);
-	tie(my %TAXES,'DB_File',"TAXONOMIES.db",O_CREAT|O_RDWR,0644) or die "$!";
-	my $label = $TAXES{$key};
-	dbmclose(%TAXES);
-	return $label;
-}
-
-# Loops through all parsing results to get all Taxonomy files. Inserts parser name and label into a file box.
-sub GetTaxonomyFiles {
-	my ($self,$file_box) = @_;
-	
-	my $parser_names = $self->GetParserNames();
-	
-	my $dir = $self->{Results};
-	opendir(DIR, $dir) or die $!;
-
-    while (my $key = readdir(DIR)) {
-    	next if ($key =~ m/^\./);
-		next unless (-d "$dir/$key");  #needs to be path separator
-		opendir(RESULTDIR, "$dir/$key") or die $!;
-		while (my $file = readdir(RESULTDIR)) {
-        	next if ($file =~ m/^\./ or not $file =~ m/\.tre/);
-        	my @splitnames = split(/\./,$file);
-        	my $label = $parser_names->{$key} . ": " . $self->GetTaxonomyLabel($splitnames[0],$key);
-			$file_box->AddFile("$dir/$key/$file",$label);
-   		}
-   		close RESULTDIR;
-    }
-    close DIR;
-}
-
-sub GetTaxonomyNodeNames {
-	my ($self,$file_path) = @_;
-	my ($filename,$directories) = fileparse($file_path);
-	chdir($directories);
-	tie(my %NAMES,'DB_File',"NAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	return \%NAMES;
-}
-
-sub GetTaxonomyNodeRanks {
-	my ($self,$file_path) = @_;
-	my ($filename,$directories) = fileparse($file_path);
-	chdir($directories);
-	tie(my %RANKS,'DB_File',"RANKS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	return \%RANKS;
-}
-
-sub GetTaxonomyNodeIds {
-	my ($self,$file_path) = @_;
-	my ($filename,$directories) = fileparse($file_path);
-	chdir($directories);
-	tie(my %SEQIDS,'DB_File',"SEQIDS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	return \%SEQIDS;
-}
-
-sub GetTaxonomyNodeValues {
-	my ($self,$file_path) = @_;
-	my ($filename,$directories) = fileparse($file_path);
-	chdir($directories);
-	tie(my %VALUES,'DB_File',"VALUES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	return \%VALUES;
-}
-
-sub GenerateTaxonomyKey {
-	my ($self) = @_;
-	my @alpha = ("a".."z");
-	srand;
-	my $name_key = "";
-	foreach (1..3) 
-	{    
-		my $rand = int(rand scalar(@alpha));
-		$name_key = $name_key . $alpha[$rand];
-	}
-	return $name_key;
-}
-
-sub GetClassificationFiles {
-	my ($self,$file_box) = @_;
-	
-	my $parser_names = $self->GetParserNames();
-	
-	my $dir = $self->{Results};
-	opendir(DIR, $dir) or die $!;
-
-    while (my $key = readdir(DIR)) {
-    	next if ($key =~ m/^\./);
-		next unless (-d "$dir/$key");
-		opendir(RESULTDIR, "$dir/$key") or die $!;
-		while (my $file = readdir(RESULTDIR)) {
-        	next if ($file =~ m/^\./ or not $file =~ m/\.xml/);
-        	my @splitnames = split(/\./,$file);
-        	my $label = $parser_names->{$key} . ": " . $self->GetClassificationLabel($splitnames[0],$key);;
-			$file_box->AddFile("$dir/$key/$file",$label);
-   		}
-   		close RESULTDIR;
-    }
-    close DIR;
 }
 
 sub MakeColorPrefsFolder {
@@ -397,72 +179,21 @@ sub ReadyForFile {
     return $name;
 }
 
-#Processes string for use as a database table name
-sub ReadyForDB {
-    my($self,$name) = @_;
-    
-    $name =~s/\./_/g;
-    
-    if (length ($name) > 100) {
-    	$name = substr($name,0,100)
-    }
-    return $name;
-}
-
-sub CheckResultFolder {
-	my ($self,$parser_name) = @_;
-	if (-d $self->{Results} . $self->{PathSeparator} . $parser_name) {
-		return 0;
-	}
-	return 1;
-}
-
 my $control = ProgramControl->new();
 
 package OkDialog;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
-use base 'Wx::Dialog';
+use base 'Wx::MessageDialog';
 
 # Takes a parent (frame base class), the function and its parameters, and a title. 
 sub new {
 	my ($class,$parent,$title,$dialog) = @_;
-	my $px = $parent->GetPosition()->x;
-	my $py = $parent->GetPosition()->y;
-	my $pwidth = $parent->GetSize()->width;
-	my $pheight = $parent->GetSize()->height;
-	my $twidth = $pwidth/4;
-	my $theight = $pheight/3;
-	my $size = Wx::Size->new($twidth,$theight);
-	my $tx = $px + $pwidth/2 - $twidth/2; 
-	my $ty = $py + $pheight/2 - $theight/2;
-	my $self = $class->SUPER::new(undef,-1,$title,[$tx,$ty],[$twidth,$theight],);
-	$self->SetMinSize($size);
-	$self->SetMaxSize($size);
+	my $self = $class->SUPER::new($parent,$dialog,"",wxSTAY_ON_TOP|wxOK|wxCANCEL|wxCENTRE,wxDefaultPosition);
+	$self->CenterOnParent(wxBOTH);
+	$self->SetBackgroundColour($green);
 	bless ($self,$class);
-	$self->Display($parent,$title,$dialog,$twidth);
 	return $self;
-}
-
-sub Display {
-	my ($self,$parent,$title,$dialog,$width) = @_;
-	$self->{Panel} = Wx::Panel->new($self,-1);
-	$self->{Panel}->SetBackgroundColour($turq);
-	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $text_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $text = Wx::StaticText->new($self->{Panel},-1,$dialog);
-	$text->Wrap($width);
-	$text_sizer->Add($text,1,wxCENTER);
-	
-	my $button_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	$self->{Ok} = Wx::Button->new($self->{Panel},wxID_OK,"Ok");
-	$self->{Cancel} = Wx::Button->new($self->{Panel},wxID_CANCEL,"Cancel");
-	$button_sizer->Add($self->{Ok},1,wxCENTER|wxRIGHT,10);
-	$button_sizer->Add($self->{Cancel},1,wxCENTER|wxLEFT,10);
-	
-	$sizer->Add($text_sizer,1,wxCENTER);
-	$sizer->Add($button_sizer,2,wxCENTER);
-	$self->{Panel}->SetSizer($sizer);
 }
 
 
@@ -500,101 +231,6 @@ sub DeleteFile {
 	my $selection = $self->{ListBox}->GetSelection;
 	splice(@{$self->{FileArray}},$selection,1);
 	$self->{ListBox}->Delete($selection);
-}
-
-
-package TreeMenu;
-use Wx qw /:everything/;
-use Wx::Event qw(EVT_BUTTON);
-use Wx::Event qw(EVT_LISTBOX_DCLICK);
-use base 'Wx::Panel';
-use Cwd;
-use Fcntl;
-use DB_File;
-
-sub new {
-	my ($class,$parent) = @_;
-	
-	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($turq);
-	$self->{TreeListBox} = undef;
-	$self->{TreeFormats} = {"Newick"=>"newick","New Hampshire"=>"nhx","PhyloXML"=>"phyloxml"};
-	bless ($self,$class);
-	$self->TreeBox();
-	$self->FillTrees();
-	$self->Layout;
-	return $self;
-}
-
-sub TreeBox {
-	my ($self) = @_;
-	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $center_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$center_panel->SetBackgroundColour($blue);
-	my $center_panel_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $label_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $label_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $label = Wx::StaticText->new($self,-1,"Choose a tree to save:");
-	$label_sizer_v->Add($label,1,wxCENTER);
-	$label_sizer_h->Add($label_sizer_v,1,wxCENTER);
-	
-	my $tree_list_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TreeFileListBox} = FileBox->new($center_panel);
-	$tree_list_sizer->Add($self->{TreeFileListBox}->{ListBox},1,wxEXPAND);
-	my $f_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $f_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $format_label = Wx::StaticBox->new($center_panel,-1,"File format:");
-	my $format_sizer = Wx::StaticBoxSizer->new($format_label,wxVERTICAL);
-	my @formats = keys(%{$self->{TreeFormats}});
-	$self->{FormatChoice} = Wx::ComboBox->new($center_panel,-1,"",wxDefaultPosition(),wxDefaultSize(),\@formats,wxCB_DROPDOWN);
-	$format_sizer->Add($self->{FormatChoice},1,wxEXPAND);
-	$f_sizer_v->Add($format_sizer,1,wxCENTER);
-	$f_sizer_h->Add($f_sizer_v,1,wxCENTER);
-	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $save_button = Wx::Button->new($self,-1,"Save");
-	$button_sizer_v->Add($save_button,1,wxCENTER);
-	$button_sizer_h->Add($button_sizer_v,1,wxCENTER);
-
-	$center_panel_sizer->Add($tree_list_sizer,4,wxEXPAND);
-	$center_panel_sizer->Add($f_sizer_h,1,wxEXPAND);
-	$center_panel->SetSizer($center_panel_sizer);
-	
-	$sizer->Add($label_sizer_h,1,wxEXPAND);
-	$sizer->Add($center_panel,8,wxEXPAND|wxLEFT|wxRIGHT,10);
-	$sizer->Add($button_sizer_h,1,wxCENTER);
-	$self->SetSizer($sizer);
-
-	EVT_BUTTON($self,$save_button,sub{$self->SaveTree()});
-}
-
-sub FillTrees {
-	my ($self) = @_;
-	$control->GetTaxonomyFiles($self->{TreeFileListBox});
-}
-
-sub SaveTree {
-	my ($self) = @_;
-	my $save_dialog = Wx::FileDialog->new($self,"",$control->{CurrentDirectory},"","*.*",wxFD_SAVE);
-	if ($save_dialog->ShowModal == wxID_OK) {
-		my $file = $self->{TreeFileListBox}->GetFile();
-		my $format = $self->{TreeFormats}->{$self->{FormatChoice}->GetValue};
-		if ($format eq "") {
-			$format = "newick";
-		}
-		my $names = $control->GetTaxonomyNodeNames($file);
-		my $treeio = new Bio::TreeIO(-format => "newick", -file => $file);
-		my $tree = $treeio->next_tree;
-		open(my $handle, ">>" . $save_dialog->GetPath() . ".tre");
-		my $savetree = new Bio::TreeIO(-format => $format, -fh => $handle);
-		for my $node($tree->get_nodes) {
-			$node->id($names->{$node->id});
-		}
-		$savetree->write_tree($tree);
-	}
-	$save_dialog->Destroy;
 }
 
 package ClassificationTypePanel;
@@ -713,6 +349,7 @@ sub Display {
 	}
 	elsif ($tax_file ne "") {
 		$self->{DataReader} = TaxonomyXML->new($tax_file);
+		$self->{DataReader}->AddFile($tax_file);
 	}
 
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
@@ -749,10 +386,8 @@ sub AddTitleBox {
 sub CopyData {
 	my ($self,$panel) = @_;
 	$self->{DataReader} = $panel->{DataReader};
-	$self->{TitleBox}->SetValue($panel->{TitleBox}->GetValue);
-	my @ranks = ();
-	for my $rank($self->{RankBox}->GetStrings) {
-		push(@ranks,$rank);
+	if (defined $panel->{TitleBox}) {
+		$self->{TitleBox}->SetValue($panel->{TitleBox}->GetValue);
 	}
 	$self->{RankBox}->SetValue($panel->{RankBox}->GetValue);
 	my @nodes = ();
@@ -811,13 +446,12 @@ use Wx::Event qw(EVT_LISTBOX_DCLICK);
 
 use base 'Wx::Panel';
 use Fcntl;
-use DB_File;
 
 sub new {
 	my ($class,$parent,$file_label,$group_label) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($turq);
+	$self->SetBackgroundColour($green);
 	
 	$self->{TypePanel} = undef;
 	$self->{Sizer} = undef; 
@@ -842,7 +476,7 @@ sub MainDisplay {
 	$self->CenterDisplay();
 	
 	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
-	$self->{GeneratePanel}->SetBackgroundColour($turq);
+	$self->{GeneratePanel}->SetBackgroundColour($green);
 	
 	my $gbutton_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $gbutton_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
@@ -978,17 +612,11 @@ sub LoadFile {
 	$dialog = Wx::FileDialog->new($self,"Choose Results");
 	if ($dialog->ShowModal==wxID_OK) {
 		my @split = split($control->{PathSeparator},$dialog->GetPath);
-		for (my $i=@split - 1; $i>0; $i--) {
-			if ($i==@split - 2) {
-				$file_label = $split[$i] . $control->{PathSeparator} . $file_label;
-				last;
-			}
-			$file_label = $split[$i] . $file_label;
-		}
+		$file_label = $split[@split - 1];
+		$self->{FileBox}->AddFile($dialog->GetPath,$file_label);
+		$self->{FileBox}->{ListBox}->SetSelection($self->{FileBox}->{ListBox}->GetCount - 1);
+		$self->DisplayNew();
 	}
-	$self->{FileBox}->AddFile($dialog->GetPath,$file_label);
-	$self->{FileBox}->{ListBox}->SetSelection($self->{FileBox}->{ListBox}->GetCount - 1);
-	$self->DisplayNew();
 	
 }
 
@@ -1034,6 +662,7 @@ sub GenerateChart {
 	my ($self,$pie_panel,$chart_data) = @_;
 	
 	my $classifier = $pie_panel->{ClassifierBox}->GetStringSelection;
+
 	if ($classifier eq "") {
 		$classifier = "All";
 	}
@@ -1050,7 +679,7 @@ sub GenerateChart {
 	}
 	
 	my $title = $pie_panel->{TitleBox}->GetValue;
-	my $label = $pie_panel->{Label};
+	my $label = $pie_panel->{DataReader}->{Title};
 		
 	if ($title eq "") {
 		if ($classifier ne "" and $classifier ne "All") {
@@ -1096,14 +725,8 @@ use Wx::Event qw(EVT_COMBOBOX);
 use Wx::Event qw(EVT_LISTBOX);
 use Wx::Event qw(EVT_LISTBOX_DCLICK);
 use Fcntl;
-use DB_File;
 
 use base ("ClassificationPiePanel");
-
-sub FillObjects {
-	my ($self) = @_;
-	$control->GetTaxonomyFiles($self->{FileBox});
-}
 
 sub GenerateChart {
 	my ($self,$pie_panel,$chart_data) = @_;
@@ -1127,7 +750,7 @@ sub GenerateChart {
 	}
 	
 	my $title = $pie_panel->{TitleBox}->GetValue;
-	my $label = $pie_panel->{Label};
+	my $label = $pie_panel->{DataReader}->{Title};
 		
 	if ($title eq "") {
 		if ($node_name eq "") {
@@ -1149,6 +772,138 @@ sub NewTypePanel {
 	return TaxonomyTypePanelTitle->new($self,$self->{FileBox}->GetFile,$self->{FileBox}->{ListBox}->GetStringSelection);
 }
 
+package TreeMenu;
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_BUTTON);
+use Wx::Event qw(EVT_LISTBOX_DCLICK);
+use base 'Wx::Panel';
+use Cwd;
+use Fcntl;
+
+sub new {
+	my ($class,$parent) = @_;
+	
+	my $self = $class->SUPER::new($parent,-1);
+	$self->SetBackgroundColour($green);
+	$self->{TreeFileListBox} = undef;
+	$self->{TreeListBox} = undef;
+	$self->{TreeFormats} = {"Newick"=>"newick","New Hampshire"=>"nhx","PhyloXML"=>"phyloxml"};
+	bless ($self,$class);
+	$self->TreeBox();
+	return $self;
+}
+
+sub TreeBox {
+	my ($self) = @_;
+	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $center_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	
+	my $file_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$file_panel->SetBackgroundColour($blue);
+	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	
+	my $file_list_label = Wx::StaticBox->new($file_panel,-1,"Save tree file or merge files:");
+	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
+	my $browse_button = Wx::Button->new($file_panel,-1,"Browse");
+	$self->{TreeFileListBox} = FileBox->new($file_panel);
+	$file_list_label_sizer->Add($browse_button,1,wxCENTER);
+	$file_list_label_sizer->Add($self->{TreeFileListBox}->{ListBox},7,wxEXPAND);
+	
+	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
+	$file_panel->Layout;
+	$file_panel->SetSizer($file_sizer);
+	
+	my $choice_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$choice_panel->SetBackgroundColour($blue);
+	my $choice_panel_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	
+	my $title_view_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $title_label = Wx::StaticBox->new($choice_panel,-1,"Title");
+	my $title_label_sizer = Wx::StaticBoxSizer->new($title_label,wxHORIZONTAL);
+	$self->{TitleBox} = Wx::TextCtrl->new($choice_panel,-1,"");
+	$title_label_sizer->Add($self->{TitleBox},1,wxEXPAND);
+	$title_view_sizer->Add($title_label_sizer,1,wxCENTER);
+
+	my $f_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $f_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $format_label = Wx::StaticBox->new($choice_panel,-1,"File format:");
+	my $format_sizer = Wx::StaticBoxSizer->new($format_label,wxVERTICAL);
+	my @formats = keys(%{$self->{TreeFormats}});
+	$self->{FormatChoice} = Wx::ComboBox->new($choice_panel,-1,"",wxDefaultPosition(),wxDefaultSize(),\@formats,wxCB_DROPDOWN);
+	$format_sizer->Add($self->{FormatChoice},1,wxEXPAND);
+	$f_sizer_v->Add($format_sizer,1,wxCENTER);
+	$f_sizer_h->Add($f_sizer_v,1,wxCENTER);
+	my $button_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
+	my $button_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $save_button = Wx::Button->new($self,-1,"Save");
+	$button_sizer_v->Add($save_button,1,wxCENTER);
+	$button_sizer_h->Add($button_sizer_v,1,wxCENTER);
+
+	$choice_panel_sizer->Add($title_label_sizer,1,wxEXPAND);
+	$choice_panel_sizer->Add($f_sizer_h,5,wxEXPAND|wxCENTER);
+	$choice_panel->SetSizer($choice_panel_sizer);
+	
+	$center_sizer->Add($file_panel,1,wxEXPAND);
+	$center_sizer->Add($choice_panel,1,wxEXPAND);
+	
+	$sizer->Add($center_sizer,8,wxEXPAND|wxLEFT|wxRIGHT|wxTOP|wxBOTTOM,10);
+	$sizer->Add($button_sizer_h,1,wxCENTER);
+	$self->SetSizer($sizer);
+
+	EVT_BUTTON($self,$browse_button,sub{$self->LoadFile()});
+	EVT_BUTTON($self,$save_button,sub{$self->SaveTree()});
+	
+	$self->Layout;
+}
+
+sub LoadFile {
+	my ($self) = @_;
+	my $dialog = 0;
+	my $file_label = "";
+	$dialog = Wx::FileDialog->new($self,"Choose Results");
+	if ($dialog->ShowModal==wxID_OK) {
+		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		$file_label = $split[@split - 1];
+	}
+	$self->{TreeFileListBox}->AddFile($dialog->GetPath,$file_label);
+	$self->{TreeFileListBox}->{ListBox}->SetSelection($self->{TreeFileListBox}->{ListBox}->GetCount - 1);
+	
+}
+
+sub SaveTree {
+	my ($self) = @_;
+	if ($self->{TreeFileListBox}->{ListBox}->GetCount == 0) {
+		return 0;
+	}
+	my $save_dialog = Wx::FileDialog->new($self,"","","","*.*",wxFD_SAVE);
+	if ($save_dialog->ShowModal == wxID_OK) {
+		my $files = $self->{TreeFileListBox}->GetAllFiles();
+		my $combiner = TreeCombiner->new();
+		my ($tree,$data) = $combiner->CombineTrees($files);
+		
+		my $format = $self->{TreeFormats}->{$self->{FormatChoice}->GetValue};
+		if ($format eq "") {
+			$format = "newick";
+		}
+		
+		if ($format eq "newick") {
+			
+		}
+		elsif ($format eq "phyloxml") {
+			my $write_xml = TaxonomyXML->new();
+			$write_xml->SaveTreePhylo($tree,$data,$self->{TitleBox}->GetValue,$save_dialog->GetPath());
+		}
+		elsif ($format eq "nhx") {
+			
+		}
+		else {
+			
+		}
+	}
+	$save_dialog->Destroy;
+}
+
 package TreeViewPanel;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -1162,8 +917,7 @@ use base ("TaxonomyPiePanel");
 
 sub new {
 	my ($class,$parent) = @_;
-	my $self = $class->SUPER::new($parent,"Available Taxonomies","Taxonomies to View");
-	$self->MainDisplay("Available Taxonomies");
+	my $self = $class->SUPER::new($parent,"Taxonomy Results","Taxonomies to View");
 	return $self;
 }
 
@@ -1175,7 +929,7 @@ sub MainDisplay {
 	$self->CenterDisplay($label);
 	
 	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
-	$self->{GeneratePanel}->SetBackgroundColour($turq);
+	$self->{GeneratePanel}->SetBackgroundColour($green);
 	
 	my $gbutton_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $gbutton_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
@@ -1201,19 +955,17 @@ sub NewTypePanel {
 
 sub TaxonomyText {
 	my ($self) = @_;
-}
-
-sub PrintSpecies {
-	my ($self,$tax_file,$result_name) = @_;
-	my @tax_file_split = split(/$control->{PathSeparator}/,$tax_file);
-	my $result_name = $control->GetParserName($tax_file_split[@tax_file_split - 2]);
-	my $names = $control->GetTaxonomyNodeNames($tax_file);
-	my $ranks = $control->GetTaxonomyNodeRanks($tax_file);
-	my $seqids = $control->GetTaxonomyNodeIds($tax_file);
-	my $values = $control->GetTaxonomyNodeValues($tax_file);
-	my $data_reader = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
-	my $dir = "/Users/virushunter1/Desktop/EpFuResults/By_Species";
-	$data_reader->PrintSummaryTextSpecies($dir,$result_name);
+	my $save_dialog = Wx::FileDialog->new($self,"","","","*.*",wxFD_SAVE);
+	if ($save_dialog->ShowModal == wxID_OK) {
+		my $files = $self->{FileBox}->GetAllFiles();
+		my $combiner = TreeCombiner->new();
+		my ($tree,$data) = $combiner->CombineTrees($files);
+		my $tax_xml = TaxonomyXML->new();
+		my $sub_node_name = $self->{TypePanel}->{NodeBox}->GetStringSelection;
+		my $rank = $self->{TypePanel}->{RankBox}->GetValue;
+		$tax_xml->PrintSummaryText($tree,$data,$sub_node_name,$rank,$save_dialog->GetDirectory,$save_dialog->GetPath);
+	}
+	$save_dialog->Destroy;
 }
 
 package QueryTextDisplay;
@@ -1593,7 +1345,7 @@ sub MainDisplay {
 	my ($self) = @_;
 	
 	$self->{MainPanel}->DestroyChildren;
-	$self->{MainPanel}->SetBackgroundColour($turq);
+	$self->{MainPanel}->SetBackgroundColour($green);
 	
 	my $leftpanelsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
@@ -1705,7 +1457,7 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($turq);
+	$self->SetBackgroundColour($green);
 	
 	$self->{ParserMenu} = undef;
 
@@ -1737,22 +1489,16 @@ sub new {
 	return $self;
 }
 
-sub DirectoryChecked {
+sub DirectoryButton {
 	my ($self,$title) = @_;
-	my $checkbox_value = $self->{DirectoryCheckBox}->GetValue;
-	if ($checkbox_value == 0) {
-		$self->{DirectoryTextBox}->SetValue("");
+	my $dialog = 0;
+	my $file_label = "";
+	$dialog = Wx::DirDialog->new($self,$title);
+	if ($dialog->ShowModal==wxID_OK) {
+		$file_label = $dialog->GetPath;
 	}
-	else {
-		my $dialog = 0;
-		my $file_label = "";
-		$dialog = Wx::DirDialog->new($self,$title);
-		if ($dialog->ShowModal==wxID_OK) {
-			$file_label = $dialog->GetPath;
-		}
-		$self->{OutputDirectoryPath} = $dialog->GetPath;
-		$self->{DirectoryTextBox}->SetValue($file_label);
-	}
+	$self->{OutputDirectoryPath} = $dialog->GetPath;
+	$self->{DirectoryTextBox}->SetValue($file_label);
 }
 
 sub OpenDialogSingle {
@@ -1797,7 +1543,7 @@ sub CheckProcess {
 	elsif ($self->{FastaFilePath} eq "") {
 		return -2;
 	}
-	elsif ($self->{OutputDirectoryPath} eq "" and $self->{TableCheck}->GetValue==0) {
+	elsif ($self->{OutputDirectoryPath} eq "") {
 		return -3;
 	}
 	else {
@@ -1835,12 +1581,12 @@ sub NewParserMenu {
 	my ($self) = @_;
 	
 	$self->{ParserMenu} = Wx::Panel->new($self,-1);
-	$self->{ParserMenu}->SetBackgroundColour($turq);
+	$self->{ParserMenu}->SetBackgroundColour($green);
 	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1); #self->{ParserMenu}
-	$self->{OptionsNotebook}->SetBackgroundColour($turq);
+	$self->{OptionsNotebook}->SetBackgroundColour($green);
 	
 	my $filespanel = $self->InputFilesMenu();
 	my $classificationpanel = $self->ClassificationMenu();
@@ -1959,18 +1705,18 @@ sub ClassificationMenu {
 	
 	$classificationpanel->SetSizer($classificationsizer);
 	
-	EVT_LISTBOX_DCLICK($classificationpanel,$self->{FlagBox}->{ListBox},sub{$self->DeleteClassItem($self->{FlagBox})});
-	EVT_LISTBOX_DCLICK($classificationpanel,$self->{ClassBox}->{ListBox},sub{$self->DeleteClassItem($self->{ClassBox})});
+	EVT_LISTBOX_DCLICK($classificationpanel,$self->{FlagBox}->{ListBox},sub{$self->DeleteClassItem($self->{FlagBox},"Delete Flag File?")});
+	EVT_LISTBOX_DCLICK($classificationpanel,$self->{ClassBox}->{ListBox},sub{$self->DeleteClassItem($self->{ClassBox},"Delete Classification File?")});
 	return $classificationpanel;
 }
 
 sub DeleteClassItem {
-	my ($self,$box) = @_;
+	my ($self,$box,$message) = @_;
 	my $parent = $self->GetParent();
 	while (defined $parent->GetParent) {
 		$parent = $parent->GetParent;
 	}
-	my $delete_dialog = OkDialog->new($parent,"Delete","Delete Flag File?");
+	my $delete_dialog = OkDialog->new($parent,"Delete",$message);
 	if ($delete_dialog->ShowModal == wxID_OK) {
 		$box->DeleteFile();
 	}
@@ -2062,18 +1808,23 @@ sub OutputMenu {
 	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $text_label = Wx::StaticBox->new($add_panel,-1,"Text Files");
-	my $text_label_sizer = Wx::StaticBoxSizer->new($text_label,wxHORIZONTAL);
-	my $directory_title = Wx::StaticText->new($add_panel,-1,"Output Directory:");
+	my $directory_label = Wx::StaticBox->new($add_panel,-1,"Output Directory:");
+	my $directory_label_sizer = Wx::StaticBoxSizer->new($directory_label,wxHORIZONTAL);
 	$self->{DirectoryTextBox} = Wx::TextCtrl->new($add_panel,-1,"");
 	$self->{DirectoryTextBox}->SetEditable(0);
-	$self->{DirectoryCheckBox} = Wx::CheckBox->new($add_panel,-1,"");
-	my $text_sizer = Wx::FlexGridSizer->new(1,3,20,20);
-	$text_sizer->AddGrowableCol(2,1);
-	$text_sizer->Add($self->{DirectoryCheckBox},1,wxCENTER);
-	$text_sizer->Add($directory_title,1,wxCENTER);
-	$text_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
-	$text_label_sizer->Add($text_sizer,1,wxEXPAND);
+	$self->{DirectoryButton} = Wx::Button->new($add_panel,-1,"Browse");
+	my $dir_sizer = Wx::FlexGridSizer->new(1,3,20,20);
+	$dir_sizer->AddGrowableCol(1,1);
+	$dir_sizer->Add($self->{DirectoryButton},1,wxCENTER);
+	$dir_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
+	$directory_label_sizer->Add($dir_sizer,1,wxEXPAND);
+	
+	my $text_label = Wx::StaticBox->new($add_panel,-1,"Text Files");
+	my $text_label_sizer = Wx::StaticBoxSizer->new($text_label,wxHORIZONTAL);
+	my $text_check_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	$self->{TextCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
+	$text_check_sizer->Add($self->{TextCheck},1,wxCENTER);
+	$text_label_sizer->Add($text_check_sizer,1,wxEXPAND);
 	
 	my $table_label = Wx::StaticBox->new($add_panel,-1,"Add to Database?");
 	my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
@@ -2082,8 +1833,9 @@ sub OutputMenu {
 	$check_sizer->Add($self->{TableCheck},1,wxCENTER);
 	$table_label_sizer->Add($check_sizer,1,wxEXPAND);
 	
-	EVT_CHECKBOX($add_panel,$self->{DirectoryCheckBox},sub{$self->DirectoryChecked("Choose Directory")});
+	EVT_BUTTON($add_panel,$self->{DirectoryButton},sub{$self->DirectoryButton("Choose Directory")});
 	
+	$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
 	$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
 	$add_sizer_v->Add($table_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
 	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
@@ -2099,6 +1851,7 @@ sub CopyData {
 	$self->{BlastFileTextBox}->SetValue($parser_panel->{BlastFileTextBox}->GetValue());
 	$self->{FastaFileTextBox}->SetValue($parser_panel->{FastaFileTextBox}->GetValue());
 	$self->{DirectoryTextBox}->SetValue($parser_panel->{DirectoryTextBox}->GetValue());
+	$self->{TextCheck}->SetValue($parser_panel->{TextCheck}->GetValue());
 	$self->{TableCheck}->SetValue($parser_panel->{TableCheck}->GetValue());
 	my $class_files = $parser_panel->{ClassBox}->GetAllFiles;
 	my $flag_files = $parser_panel->{FlagBox}->GetAllFiles;
@@ -2119,7 +1872,7 @@ sub CopyData {
 	$self->{BlastFilePath} = $parser_panel->{BlastFilePath};
 	$self->{FastaFilePath} = $parser_panel->{FastaFilePath};
 	$self->{OutputDirectoryPath} = $parser_panel->{OutputDirectoryPath};
-	$self->{DirectoryCheckBox}->SetValue($parser_panel->{DirectoryCheckBox}->GetValue);
+
 	my @roots = ();
 	for (my $i=0; $i<$parser_panel->{RootList}->GetCount; $i++) {
 		push(@roots,$parser_panel->{RootList}->GetString($i));
@@ -2165,7 +1918,7 @@ sub SetPanels {
 	my ($self) = @_;
 	
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->SetBackgroundColour($turq);
+	$self->SetBackgroundColour($green);
 	
 	$sizer->Add($self,1,wxGROW);
 	$self->SetSizer($sizer);
@@ -2190,7 +1943,7 @@ sub SetGeneratePanel {
 	my ($self) = @_;
 	
 	$self->{GeneratePanel} = Wx::Panel->new($self,-1);
-	$self->{GeneratePanel}->SetBackgroundColour($turq);
+	$self->{GeneratePanel}->SetBackgroundColour($green);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $listlabel = Wx::StaticBox->new($self->{GeneratePanel},-1,"Parsers in progress");
@@ -2297,7 +2050,7 @@ sub SetQueuePanel {
 	my ($self) = @_;
 	
 	$self->{QueuePanel} = Wx::Panel->new($self,-1);
-	$self->{QueuePanel}->SetBackgroundColour($turq);
+	$self->{QueuePanel}->SetBackgroundColour($green);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $listlabel = Wx::StaticBox->new($self->{QueuePanel},-1,"Queue");
@@ -2358,24 +2111,41 @@ sub NewProcessForQueue {
 	my ($self) = @_;
 	
 	my $page = $self->{ParserPanel};
+	my $check = $page->CheckProcess();
 	
-	if ($page->CheckProcess() == 0) {
-		$self->GetParent()->SetStatusText("Please Choose a Parsing Name");
-		return 0;	
-	}
-	elsif ($page->CheckProcess() == -1) {
-		$self->GetParent()->SetStatusText("Please Choose a BLAST Output File");
-		return 0;	
-	}
-	elsif ($page->CheckProcess() == -2) {
-		$self->GetParent()->SetStatusText("Please Choose a FASTA File");
-		return 0;	
-	}
-	elsif ($page->CheckProcess() == -3) {
+	if ($check == 1) {
 		$self->AddProcessQueue();
+		return 1;
 	}
-	elsif ($page->CheckProcess() == 1) {
-		$self->AddProcessQueue();
+	
+	
+	if ($check == 0) {
+		my $dialog = Wx::MessageDialog->new($self->GetParent,"","Please Choose a Parsing Name","");
+		#$dialog->SetBackgroundColour($green);
+		#$dialog->CenterOnParent();
+		$dialog->ShowModal;
+		return 0;	
+	}
+	elsif ($check == -1) {
+		my $dialog = Wx::MessageDialog->new($self->GetParent,"","Please Choose a BLAST Output File","");
+		$dialog->SetBackgroundColour($green);
+		$dialog->Centre();
+		$dialog->ShowModal;
+		return 0;	
+	}
+	elsif ($check == -2) {
+		my $dialog = Wx::MessageDialog->new($self->GetParent,"","Please Choose a FASTA File","");
+		$dialog->SetBackgroundColour($green);
+		$dialog->CenterOnParent();
+		$dialog->ShowModal;
+		return 0;	
+	}
+	elsif ($check == -3) {
+		my $dialog = Wx::MessageDialog->new($self->GetParent,"","Please Choose an Output Directory","");
+		$dialog->SetBackgroundColour($green);
+		$dialog->CenterOnParent();
+		$dialog->ShowModal;
+		return 0;
 	}
 	else {
 		return 0;
@@ -2396,12 +2166,27 @@ sub AddProcessQueue {
 sub GenerateParser {
 	my ($self,$page) = @_;
 	
-	my $parser = BlastParser->new($page->{ParserNameTextCtrl}->GetValue);
-	
+	my $parser = BlastParser->new($control,$page->{ParserNameTextCtrl}->GetValue,$page->{OutputDirectoryPath});
 	$parser->SetBlastFile($page->{BlastFilePath});
 	$parser->SetSequenceFile($page->{FastaFilePath});
-	
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
+	
+	if ($page->{TableCheck}->GetValue==1) {
+			my $table = SendTable->new($control,$page->{ParserNameTextCtrl}->GetValue);
+			$parser->AddProcess($table);
+	}
+
+	my $taxonomy;
+	if ($page->{SourceCombo}->GetValue ne "") {
+		my @ranks = ();
+		my @roots = $page->{RootList}->GetStrings;
+		if ($page->{SourceCombo}->GetValue eq "Connection") {
+			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$control);
+		}
+		else {
+			$taxonomy = FlatFileTaxonomy->new($control->{NodesFile},$control->{NamesFile},\@ranks,\@roots,$control);
+		}
+	}
 	
 	my @classes = ();
 	my @flags = ();
@@ -2416,23 +2201,14 @@ sub GenerateParser {
 		push(@flags,$flag);
 	}
 	
-	my $taxonomy;
-	if ($page->{SourceCombo}->GetValue ne "") {
-		my @ranks = ();
-		my @roots = $page->{RootList}->GetStrings;
-		if ($page->{SourceCombo}->GetValue eq "Connection") {
-			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$control);
-		}
-		else {
-			$taxonomy = FlatFileTaxonomy->new($control->{NodesFile},$control->{NamesFile},\@ranks,\@roots,$control);
-		}
+	for my $class(@classes) {
+		$parser->AddProcess($class);
+	}
+	for my $flag(@flags) {
+		$parser->AddProcess($flag);
 	}
 	
-	if ($page->{TableCheck}->GetValue==1) {
-		my $table = SendTable->new($control);
-		$parser->AddProcess($table);
-	}
-	if ($page->{OutputDirectoryPath} ne "") { # should be directory checked instead
+	if ($page->{TextCheck}->GetValue == 1) {
 		my $text;
 		if (defined $taxonomy) {
 			$text = TaxonomyTextPrinter->new($page->{OutputDirectoryPath},$taxonomy,$control);
@@ -2440,25 +2216,12 @@ sub GenerateParser {
 		else {
 			$text = TextPrinter->new($page->{OutputDirectoryPath},$control);
 		}
-		for my $class(@classes) {
-			$text->AddProcess($class);
-		}
-		for my $flag(@flags) {
-			$text->AddProcess($flag);
-		}
 		$parser->AddProcess($text);
 	}
 	else {
-		for my $class(@classes) {
-			$parser->AddProcess($class);
-		}
-		for my $flag(@flags) {
-			$parser->AddProcess($flag);
-		}
-		if (defined $taxonomy) {
-			$parser->AddProcess($taxonomy);
-		}
+		$parser->AddProcess($taxonomy) unless not defined $taxonomy;
 	}
+	
 	push(@{$self->{Parsers}},$parser);
 }
 
@@ -2466,10 +2229,10 @@ sub RunParsers {
 	my ($self) = @_;
 	
 	my $progress_dialog = Wx::ProgressDialog->new("","",100,$self,wxSTAY_ON_TOP|wxPD_APP_MODAL);
+	$progress_dialog->SetBackgroundColour($green);
+	$progress_dialog->Centre();
 	for my $parser(@{$self->{Parsers}}) {
-		my $key = $control->AddParserName($parser->{Label});
-		my $dir = $control->CreateResultFolder($key);
-		$parser->prepare($key,$dir);
+		$parser->prepare();
 		my @label_strings = split(/\//,$parser->{BlastFile});
 		my $label = $label_strings[@label_strings - 1];
 		$progress_dialog->Update(-1,"Parsing " . $label . " ...");
@@ -2477,7 +2240,6 @@ sub RunParsers {
 		$parser->Parse($progress_dialog);
 	}
 	$progress_dialog->Destroy;
-	$self->GetParent()->SetStatusText("Done Parsing");
 }
 
 sub Run {
@@ -2501,7 +2263,6 @@ sub Run {
 		}
 	}
 	else {
-		$self->GetParent()->SetStatusText("No Files to Parse");
 	}
 }
 
@@ -2517,7 +2278,7 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($turq);
+	$self->SetBackgroundColour($green);
 	$self->{Parent} = $parent;
 	$self->{Keys} = ();
 	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
@@ -2633,7 +2394,7 @@ use Wx::Event qw(EVT_LISTBOX_DCLICK);
 sub new {
 	my ($class) = shift;
 
-	my $self = $class->SUPER::new(undef,-1,'PACT',[-1,-1],[1200,600],);
+	my $self = $class->SUPER::new(undef,-1,'PACT',wxDefaultPosition,Wx::Size->new(1000,500));
 	
 	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{QueuePanel} = undef;
@@ -2649,6 +2410,7 @@ sub new {
 
 	$self->Centre();
 	$self->OnProcessClicked(0);
+	$self->SetMinSize(Wx::Size->new(1000,500));
 	return $self;
 }
 
@@ -2770,7 +2532,7 @@ sub TopMenu {
 
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"Parser Menu");
-	my $manage = $self->{FileMenu}->Append(102,"Manage Results");
+	#my $manage = $self->{FileMenu}->Append(102,"Manage Results");
 	$self->{FileMenu}->AppendSeparator();
 	my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
 	$self->{FileMenu}->AppendSeparator();
@@ -2778,7 +2540,7 @@ sub TopMenu {
 	$self->{FileMenu}->AppendSeparator();
 	my $close = $self->{FileMenu}->Append(105,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
-	EVT_MENU($self,102,\&InitializeResultManager);
+	#EVT_MENU($self,102,\&InitializeResultManager);
 	EVT_MENU($self,103,\&TaxonomyFileUpdater);
 	EVT_MENU($self,104,\&InitializeTreeSaveMenu);
 	EVT_MENU($self,105,sub{$self->Close(1)});
@@ -2808,8 +2570,6 @@ sub TopMenu {
 	my $status_bar = Wx::StatusBar->new($self,-1);
 	$self->SetStatusBar($status_bar);
 	$self->SetStatusText('Pyrosequence Annotation and Categorization Tool');
-	
-	$self->SetMinSize(Wx::Size->new(700,450));
 }
 
 package Application;

@@ -127,7 +127,9 @@ sub OnSize {
 	my $size = $self->GetClientSize();
 	my $width = $size->GetWidth();
 	my $height = $size->GetHeight();
-	$self->{Bitmap} = Wx::Bitmap->new($width,$height,-1);
+	if ($width != 0 and $height != 0) {
+		$self->{Bitmap} = Wx::Bitmap->new($width,$height,-1);	
+	}
 	my $memory = Wx::MemoryDC->new();
 	$memory->SelectObject($self->{Bitmap});
 	if ($self->{Data}->{Total} != 0){
@@ -519,7 +521,7 @@ sub SaveDialog {
 sub SaveColors {
 	my ($self,$save_name) = @_;
 	chdir($self->{Control}->{ColorPrefs});
-	dbmopen(my %COLOR,$save_name,0644) or die "Cannot create $save_name: $!";
+	dbmopen(my %COLOR,$save_name . ".db",0644) or die "Cannot create $save_name: $!";
 	for (my $i=0; $i<$self->{Notebook}->GetPageCount; $i++) {
 		my $pie = $self->{Notebook}->GetPage($i);
 		for my $name(keys(%{$pie->{Brushes}})) {
@@ -564,7 +566,7 @@ sub LoadDialog {
 	$framesizer->Add($textsizer,4,wxCENTER|wxEXPAND);
 	$framesizer->Add($enter_sizer_h,1,wxCENTER);
 	
-	EVT_BUTTON($loadpanel,$enter,sub{$self->LoadColors($loadframe,$text->GetString($text->GetSelection))});
+	EVT_BUTTON($loadpanel,$enter,sub{$self->LoadColors($loadframe,$text->GetStringSelection)});
 	$loadpanel->SetSizer($framesizer);
 	$loadframe->Layout;
 	$loadframe->Show;
@@ -675,9 +677,9 @@ sub ExportDialog {
 sub Export {
 	my ($self,$file_name) = @_;
 	my $handler = Wx::PNGHandler->new();
-	my $file = IO::File->new($file_name . ".pact.png","w");
+	my $file = IO::File->new($file_name . ".png","w");
 	my $pie = $self->{Notebook}->GetCurrentPage();
-	$handler->SaveFile($pie->{Bitmap}->ConvertToImage(),$file); #$file);
+	$handler->SaveFile($pie->{Bitmap}->ConvertToImage(),$file);
 }
 
 1;

@@ -23,17 +23,17 @@ use File::Path;
 
 sub new {
      
-     my ($class,$label) = @_;
+     my ($class,$control,$label,$dir) = @_;
      
      my $self = {
      	SequenceFile =>  undef,
-     	InternalDirectory => undef,
+     	OutputDirectory => $dir,
      	In => undef, # The bioperl SearchIO object
      	SequenceMemory => undef,
-     	Key => undef,
      	Label => $label,
      	DoneParsing => 0,
      	NumSeqs => 0,
+     	Control => $control
 	 };
 	 $self->{Processes} = ();
      bless($self,$class);
@@ -42,12 +42,8 @@ sub new {
 }
 
 sub prepare {
-	my ($self,$key,$internal_directory) = @_;
-	$self->{Key} = $key;
-	$self->{InternalDirectory} = $internal_directory;
-	for my $process(@{$self->{Processes}}) {
-		$process->prepare($self->{Label},$key);
-	}
+	my ($self) = @_;
+	$self->NoHitsFolder();
 	$self->SetSequences();
 }
 
@@ -111,12 +107,23 @@ sub HitData {
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
 
+sub NoHitsFolder {
+	my ($self) = @_;
+	chdir($self->{OutputDirectory});
+	$self->{NoHits} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "NoHits";
+	mkdir($self->{NoHits});
+}
+
 sub NoHits {
 	my ($self,$query_name) = @_;
 	
+	if (not defined $self->{NoHits}) {
+		return 0;
+	}
+	
 	my $sequence = $self->{SequenceMemory}{$query_name};
 	
-	chdir($self->{InternalDirectory});
+	chdir($self->{NoHits});
 	open(NOHITSFASTA, '>>' . "NoHits.fasta");
 	
 	print NOHITSFASTA ">" . $query_name . "\n";
@@ -166,10 +173,7 @@ sub Parse {
 	
 	$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
-		$process->EndRoutine($self->{Key},$self->{InternalDirectory});
-	}
-	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($self->{Key},$self->{InternalDirectory});
+		$process->SaveRoutine($self->{OutputDirectory},$self->{Label});
 	}
 	$progress_dialog->Update(100);
 }
@@ -217,9 +221,9 @@ use base ("Parser");
 
 sub new {
      
-     my ($class,$label) = @_;
+     my ($class,$control,$label,$dir) = @_;
      
-     my $self = $class->SUPER::new($label);
+     my $self = $class->SUPER::new($control,$label,$dir);
      $self->{BlastFile} = undef;
      $self->{Bit} = 40.0;
      $self->{Evalue} = .001;
@@ -276,9 +280,9 @@ sub new {
      my ($class,$control) = @_;
      
      my $self = {
-     	Data => undef, # Usually Id to total number found for that value.
-     	IdToName => undef, # Sequence Id to short name
-     	Control => $control # parent ProgramControl (same object as in Display.pl)
+     	Data => undef,
+     	IdToName => undef,
+     	Control => $control # parent ProgramControl (same as in Display.pl)
 	 };
      
      bless($self,$class);
@@ -297,6 +301,7 @@ sub HitRoutine {
 # increment the Data hashes
 sub AddData {
 	my ($self,$id,$name) = @_;
+
 	if (not defined $self->{Data}{$id}) {
 		$self->{Data}{$id} = 1;
 	}
@@ -306,19 +311,11 @@ sub AddData {
 	$self->{IdToName}{$id} = $name;
 }
 
-sub EndRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-}
-
 # Save internally the values and structures obtained.
 sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
+	my ($self,$output_directory,$parser_name) = @_;
 }
 
-# To be called before the parsing
-sub prepare {
-	my ($self,$parser_name,$parser_key) = @_;
-}
 
 =head1 NAME
 
@@ -345,21 +342,11 @@ use base ("Process");
 sub new {
 	 my ($class,$dir,$control) = @_; # $dir is the path where all output ends up.
      my $self = $class->SUPER::new($control);
-     
+     $self->{Data} = ();
+     $self->{IdToName} = ();
      $self->{OutputDirectory} = $dir; # Parent directory in which local output directory will be printed.
-     $self->{Processes} = ();
      bless($self,$class);
      return $self;
-}
-
-sub SetOutputDir {
-	my ($self,$path) = @_;
-	$self->{OutputDirectory} = $path;
-}
-
-sub AddProcess {
-	my ($self,$process) = @_;
-	push(@{$self->{Processes}},$process);
 }
 
 sub PrintHitFileHeader {
@@ -375,10 +362,6 @@ sub PrintHitFileHeader {
 
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
-	
-	for my $process(@{$self->{Processes}}) {
-		$process->HitRoutine($hitdata);
-	}
 	
 	my $query = $hitdata->[0];
 	my $qlength = $hitdata->[1];
@@ -441,31 +424,16 @@ sub PrintFasta {
   	close FASTAFILE;
 }
 
-sub EndRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-	$self->NoHitsFolder($parser_name,$parser_directory);
+sub SaveRoutine {
+	my ($self,$output_directory,$parser_name) = @_;
 	$self->StatsFile();
-	
-	for my $process(@{$self->{Processes}}) {
-			$process->EndRoutine($parser_name,$parser_directory);
-	}
-	
-	$self->PrintSummaryTexts();
-}
-
-sub NoHitsFolder {
-	my ($self,$parser_name,$parser_directory) = @_;
-	# Needs: cleaning up header files
-	chdir($self->{OutputDirectory});
-	$self->{NoHits} = $self->{OutputDirectory} . $self->{Control}->{PathSeparator} . "NoHits";
-	mkdir($self->{NoHits});
-	copy ($parser_directory . $self->{Control}->{PathSeparator} . "NoHits.fasta",$self->{NoHits} . $self->{Control}->{PathSeparator} . $self->{Control}->GetParserName($parser_name) . ".NoHits.fasta");
 }
 
 sub StatsFile {
-	my $self = shift;
+	my ($self,$parser_name) = @_;
+	
 	chdir($self->{OutputDirectory});
-	open(STATSFILE, '>>' . "HitTotals.txt");
+	open(STATSFILE, '>>' .  "$parser_name HitTotals.txt");
 	
 	my %hitnames = reverse %{$self->{IdToName}};
 	my %hit2ids = ();
@@ -489,20 +457,6 @@ sub StatsFile {
 	}
 	
 	close STATSFILE;
-}
-
-sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($parser_name,$parser_directory);
-	}
-}
-
-sub PrintSummaryTexts {
-	my ($self) = @_;
-	for my $process (@{$self->{Processes}}) {
-		$process->PrintSummaryText($self->{OutputDirectory});
-	}
 }
 
 
@@ -552,20 +506,14 @@ sub HitRoutine {
 	chdir($self->{OutputDirectory});
 	for my $flag (keys(%{$self->{Data}})) {
 		  if ($descr =~ /$flag/ig) {
-		  	  # print $self->{FlagDir} . "\n";
 			  $self->PrintHit($self->{FlagDir},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 			  last;
 		  }
       }
 }
 
-sub EndRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-}
-
-# Save internally the values and structures obtained.
 sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
+	my ($self,$output_dir,$parser_name) = @_;
 }
 
 package TaxonomyTextPrinter;
@@ -623,25 +571,15 @@ sub PrintFound {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-	for my $process(@{$self->{Processes}}) {
-		$process->SaveRoutine($parser_name,$parser_directory);
-	}
-	$self->{Taxonomy}->SaveRoutine($parser_name,$parser_directory);
-}
-
-sub PrintSummaryTexts {
-	my ($self) = @_;
-	$self->{Taxonomy}->PrintSummaryText($self->{OutputDirectory});
-	for my $process (@{$self->{Processes}}) {
-		$process->PrintSummaryText($self->{OutputDirectory});
-	}
+	my ($self,$output_directory,$parser_name) = @_;
+	$self->SUPER::SaveRoutine($output_directory,$parser_name);
+	$self->{Taxonomy}->SaveRoutine($output_directory,$parser_name);
+	$self->{Taxonomy}->PrintSummaryText($output_directory,$parser_name);
 }
 
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
-use DB_File;
 use base ("Process");
 
 sub new {
@@ -759,22 +697,23 @@ sub GetTrees {
 }
 
 sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-	chdir($parser_directory);
+	my ($self,$output_directory,$parser_name) = @_;
+	chdir($output_directory);
 	my $trees = $self->GetTrees();
-	$self->SaveTrees($trees);
+	$self->SaveTrees($trees,$parser_name);
 }
 
 # This routine will be moved to TaxonomyData?
 sub SaveTrees {
-	my ($self,$trees) = @_;
+	my ($self,$trees,$parser_name) = @_;
 	for my $tree (@$trees) {
-		my $title = $tree->get_root_node()->node_name;
-		my $tree_key = $self->{Control}->AddTaxonomy($title);
-		my $temp_file = $tree_key . "_temp.xml";
+		my $title = $parser_name . " " . $tree->get_root_node()->node_name;
+		$tree->add_tag_value("Title",$title);
+		my $temp_file = $title . "_temp.xml";
 		open(my $temp_handle, ">>" . $temp_file);
 		my $temp_out = new Bio::TreeIO(-fh => $temp_handle, -format => 'phyloxml');
 		$temp_out->write_tree($tree);
+
 		$temp_out->DESTROY;
 		my $in = new Bio::TreeIO(-file => $temp_file, -format => 'phyloxml');
 		my $in_tree = $in->next_tree;
@@ -784,48 +723,17 @@ sub SaveTrees {
 			my $name = $taxon->node_name;
 			my $rank = $taxon->rank;
 			my $value = $self->{Data}{$node->id};
-			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<taxonomy><scientific_name>$name</scientific_name><rank>$rank</rank></taxonomy>");
-			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<width>$value</width>");
+			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<taxonomy><scientific_name>$name</scientific_name><rank>$rank</rank></taxonomy><value>$value</value>");
 		}
-		open(my $handle, ">>" . $tree_key . ".xml");
+		open(my $handle, ">>" . $title . ".xml");
 		my $out = new Bio::TreeIO(-fh => $handle, -format => 'phyloxml');
 		$out->write_tree($in_tree);
-		close $handle;
 		unlink($temp_file);
 	}
 }
 
-=cut
-sub SaveTrees {
-	my ($self,$trees) = @_;
-	tie(my %NAMES,'DB_File',"NAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	tie(my %RANKS,'DB_File',"RANKS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	tie(my %SEQIDS,'DB_File',"SEQIDS.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	tie(my %VALUES,'DB_File',"VALUES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
-	for my $tree (@$trees) {
-		my $title = $tree->get_root_node()->node_name;
-		my $tree_key = $self->{Control}->AddTaxonomy($title);
-		for my $node($tree->get_nodes) {
-			$NAMES{$node->id} = $node->node_name;
-			$RANKS{$node->id} = $node->rank;
-			$SEQIDS{$node->id} = 0;
-			$VALUES{$node->id} = $self->{Data}{$node->id};
-		}
-		open(my $handle, ">>" . $tree_key . ".tre");
-		my $out = new Bio::TreeIO(-fh => $handle, -format => 'newick');
-		$out->write_tree($tree);
-		close $handle;
-	}
-	untie(%NAMES);
-	untie(%RANKS);
-	untie(%SEQIDS);
-	untie(%VALUES);
-}
-=cut
-
-# This routine will be moved to TaxonomyData
 sub PrintSummaryText {
-	my ($self,$dir) = @_;
+	my ($self,$dir,$parser_name) = @_;
 	
 	chdir($dir);
 	
@@ -844,7 +752,7 @@ sub PrintSummaryText {
 	
 	for my $tree (@$trees) {
 		my $root = $tree->get_root_node;
-		open(TREE,'>>' . $root->node_name . '.pact.txt');
+		open(TREE,'>>' . $parser_name . " " . $root->node_name . '.txt');
 		for my $node($tree->get_nodes) {
 			my $space = "";
 			for (my $i=0; $i<GetDepth($node); $i++) {
@@ -899,12 +807,8 @@ sub new {
 	my $self = $class->SUPER::new($control);
 	$self->{FilePath} = $file_name;
 	bless($self,$class);
-	return $self;
-}
-
-sub prepare {
-	my ($self) = @_;
 	$self->Generate();
+	return $self;
 }
 
 sub Generate {
@@ -962,11 +866,17 @@ sub HitRoutine {
 	$self->Fill($hitname);
 }
 
+sub SaveRoutine {
+	my ($self,$output_directory,$parser_name) = @_;
+	$self->PrintSummaryText($output_directory,$parser_name);
+	$self->SaveXML($output_directory,$parser_name);
+}
+
 sub PrintSummaryText {
-	my ($self,$dir) = @_;
+	my ($self,$dir,$parser_name) = @_;
 	chdir($dir);
 
-	open(DATA,'>>' . $self->{Title} . '.pact.txt');
+	open(DATA,'>>' . $parser_name . " " . $self->{Title} . '.txt');
 	
 	my %reverse = reverse %{$self->{ItemToParent}};
 	
@@ -980,13 +890,13 @@ sub PrintSummaryText {
 	}	
 }
 
-
-sub SaveRoutine {
-	my ($self,$parser_name,$parser_directory) = @_;
-	chdir($parser_directory);
-	my $output = new IO::File(">" . $self->{Control}->AddClassification($self->{Title}) . ".xml");
+# to be moved to ClassificationXML
+sub SaveXML {
+	my ($self,$output_directory,$parser_name) = @_;
+	chdir($output_directory);
+	my $output = new IO::File(">" . $parser_name . " " . $self->{Title} . ".xml");
 	my $writer = new XML::Writer(OUTPUT => $output);
-	$writer->startTag("root","Title"=>$self->{Title});
+	$writer->startTag("root","Title"=>$parser_name . " " . $self->{Title});
 	my %parents_hash = reverse %{$self->{ItemToParent}};
 	for my $parent(keys(%parents_hash)) {
 		$writer->startTag("classifier","name"=>$parent,"value"=>$self->{Data}{$parent});
@@ -1010,20 +920,15 @@ use base ("Process");
 
 sub new {
      
-     my ($class,$control) = @_;
+     my ($class,$control,$parser_name) = @_;
      
      my $self = $class->SUPER::new($control);
+     $self->{TableName} = $parser_name;
+     $self->{Control}->AddTableName($parser_name);
+     $self->MakeTables();
      $self->{GIs} = (); # Hash of gi numbers as primary keys for HitInfo
      bless($self,$class);
      return $self;
-
-}
-
-sub prepare {
-	my ($self,$parser_name,$parser_key) = @_;
-	$self->{TableName} = $parser_key;
-	$self->MakeTables();
-	$self->{Control}->AddTableName($parser_name,$parser_key);
 }
 
 sub MakeTables {
@@ -1033,7 +938,7 @@ sub MakeTables {
 	$self->{AllHits} = $self->{TableName} . "_AllHits";
 	$self->{HitInfo} = $self->{TableName} . "_HitInfo";
 	
-	chdir($self->{Control}->{CurrentDirectory});
+	chdir($self->{Control}->{Results});
 		 
 	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{QueryInfo});
 	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{AllHits});
@@ -1079,10 +984,10 @@ use XML::Simple;
 
 sub new {
 	my ($class,$file_name) = @_;
-	my $self = {
-	};
+	my $self = {};
 	$self->{XML} = new XML::Simple;
 	$self->{ClassificationHash} = $self->{XML}->XMLin($file_name);
+	$self->{Title} = $self->{ClassificationHash}->{"Title"};
 	bless ($self,$class);
 	return $self;
 }
@@ -1167,13 +1072,18 @@ sub PieAllClassifiersData {
 package TaxonomyXML;
 
 sub new {
-	my ($class,$phyloxml_file) = @_;
+	my ($class) = @_;
 	my $self = {};
+	bless ($self,$class);
+	return $self;
+}
+
+sub AddFile {
+	my ($self,$phyloxml_file) = @_;
 	$self->{TreeIO} = new Bio::TreeIO(-file=>$phyloxml_file,-format=>'phyloxml');
 	$self->{Tree} = $self->{TreeIO}->next_tree;
-	bless ($self,$class);
+	$self->{Title} = $self->{Tree}->get_tag_values("Title");
 	$self->{RootName} = $self->GetName($self->{Tree}->get_root_node());
-	return $self;
 }
 
 sub PieDataNode {
@@ -1185,16 +1095,17 @@ sub PieDataNode {
 sub PieDataRank {
 	my ($self,$sub_node,$rank) = @_;
 	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
+	my $subtotal = 0;
 	if ($sub_node->descendent_count == 0) {
 		if ($self->GetRank($sub_node) eq $rank) {
 			push(@{$pie_data{"Names"}},$self->GetName($sub_node));
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_node));
-			$pie_data{"Total"} += $self->GetValue($sub_node);
+			$subtotal += $self->GetValue($sub_node);
 		}
 		elsif ($rank eq "species" and $self->GetRank($sub_node->ancestor()) eq "species") {
 			push(@{$pie_data{"Names"}},$self->GetName($sub_node));
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_node));
-			$pie_data{"Total"} += $self->GetValue($sub_node);
+			$subtotal += $self->GetValue($sub_node);
 		}
 	}
 	
@@ -1202,14 +1113,21 @@ sub PieDataRank {
 		if ($self->GetRank($sub_sub_node) eq $rank){	
 			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
-			$pie_data{"Total"} += $self->GetValue($sub_sub_node);
+			$subtotal += $self->GetValue($sub_sub_node);
 		}
 		elsif ($rank eq "species" and $self->GetRank($sub_sub_node->ancestor()) eq "species") {
 			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
-			$pie_data{"Total"} += $self->GetValue($sub_sub_node);
+			$subtotal += $self->GetValue($sub_sub_node);
 		}
 	}
+	$pie_data{"Total"} = $self->GetValue($sub_node);
+	
+	# The 'unassigned' case
+	push(@{$pie_data{"Names"}},"Unassigned");
+	my $unassigned_count = $pie_data{"Total"} - $subtotal;
+	push(@{$pie_data{"Values"}},$unassigned_count);
+	
 	return \%pie_data;
 }
 
@@ -1268,7 +1186,7 @@ sub GetRank {
 
 sub GetValue {
 	my ($self,$node) = @_;
-	$self->GetCladeAnnotation($node,"width");
+	$self->GetCladeAnnotation($node,"value");
 }
 
 sub FindNode {
@@ -1301,159 +1219,118 @@ sub GetNodesLevel {
 	return \@level_nodes;
 }
 
-#takes a BioPerl Tree (or "node");
-sub PrintSummaryTextSpecies {
-	my ($self,$dir,$result_name) = @_;
+sub SaveTreePhylo {
+	my ($self,$tree,$data,$title,$file_path) = @_;
+	
+	$tree->remove_all_tags();
+	$tree->add_tag_value("Title",$title);
+	
+	open(my $handle, ">>" . $file_path . ".xml");
+	my $out = new Bio::TreeIO(-fh => $handle, -format => 'phyloxml');
+	
+	for my $node($tree->get_nodes) {
+		my $ann = $node->annotation;
+		foreach my $key ( $ann->get_all_annotation_keys() ) {
+			if ($key eq "value") {
+				$ann->remove_Annotations($key);
+			}
+		}
+		my $value = $data->{$node->id};
+		$out->add_phyloXML_annotation(-obj=>$node,-xml=>"<value>$value</value>");
+	}
+	
+	$out->write_tree($tree);
+}
+
+sub PrintSummaryText {
+	my ($self,$tree,$data,$sub_node_name,$rank,$dir,$path) = @_;
 	
 	chdir($dir);
 	
-	## BioPerl's depth routine does not seem to work well.
 	sub GetDepth {
-		my ($node) = @_;
+		my ($node,$rank) = @_;
 		my $depth = 0;
 		while (defined $node->ancestor) {
+			if ($self->GetRank($node) eq $rank) { return $depth;}
 			$depth++;
 			$node = $node->ancestor;
 		}
 		return $depth;
 	}
 	
-	my $root = $self->{Tree}->get_root_node;
-	open(TREE,'>>' . $result_name . "." . $self->GetName($root) . '.txt');
-	for my $node($self->{Tree}->get_nodes) {
-		next if ($node->descendent_count != 0);
-		print TREE $result_name . " " . $self->GetName($node) . ": " . $self->GetValue($node) . "\n";
+	sub AboveRank {
+		my ($node,$rank) = @_;
+		if ($self->GetRank($node) eq $rank) {
+			return 0;
+		}
+		while (defined $node->ancestor) {
+			$node = $node->ancestor;
+			if ($self->GetRank($node) eq $rank) {
+				return 0;
+			}
+		}
+		return 1;
+	}
+	
+	sub IsDescendent {
+		my ($node,$sub_node_name) = @_;
+		if ($self->GetName($node) eq $sub_node_name) {
+			return 1;
+		}
+		while (defined $node->ancestor) {
+			$node = $node->ancestor;
+			if ($self->GetName($node) eq $sub_node_name) {
+				return 1;
+			}
+		}
+		return 0;
+	}
+	
+	open(TREE,'>>' . $path . ".txt");
+	for my $node($tree->get_nodes) {
+		next unless IsDescendent($node,$sub_node_name) == 1 and $sub_node_name ne "";
+		next unless AboveRank($node,$rank) == 0 and $rank ne "";
+		my $space = "";
+		my $depth = GetDepth($node,$rank);
+		print $self->GetName($node) . " " . $self->GetRank($node) . " " . $depth . "\n";
+		for (my $i=0; $i<$depth; $i++) {
+			$space = $space . "  ";
+		}
+		print TREE $space . $self->GetName($node) . ": " . $data->{$node->id} . "\n";
 	}
 	close TREE;
 }
 
-
-=head1 NAME
-
-TaxonomyData
-
-=head1 SYNOPSIS
-
-=head1 DESCRIPTION
-
-This package reads data from the newick and db files on name, rank, seqid, and value found and turns it into
-a Bio::Tree.
-
-=cut
-
-package TaxonomyData;
-use Bio::Tree::Tree;
-use Bio::TreeIO;
-use Fcntl;
-use DB_File;
+package TreeCombiner;
 
 sub new {
-	my ($class,$newick_file,$names,$ranks,$seqids,$values) = @_;
+	my ($class) = @_;
 	my $self = {};
-	$self->{TreeIO} = new Bio::TreeIO(-file=>$newick_file,-format=>'newick');
-	$self->{Tree} = $self->{TreeIO}->next_tree;
-	$self->{NAMES} = $names;
-	$self->{RANKS} = $ranks;
-	$self->{SEQIDS} = $seqids;
-	$self->{VALUES} = $values;
-	$self->{RootName} = $self->{NAMES}{$self->{Tree}->get_root_node()->id};
 	bless ($self,$class);
 	return $self;
 }
 
-
-sub PieDataNode {
-	my ($self,$sub_node_name,$rank) = @_;
-	my $sub_node = $self->FindNode($sub_node_name);
-	return $self->PieDataRank($sub_node,$rank);
+sub CombineTrees {
+	my ($self,$tree_files) = @_;
+	my %data = ();
+	my $tree;
+	for my $file(@$tree_files) {
+		my $tax_xml = TaxonomyXML->new();
+		$tax_xml->AddFile($file);
+		if (not defined $tree) {
+			$tree = $tax_xml->{Tree};
+			for my $node($tree->get_nodes) {
+				$data{$node->id} = $tax_xml->GetValue($node);					
+			}
+		}
+		else {
+			for my $node($tax_xml->{Tree}->get_nodes) {
+				$tree->get_root_node()->add_Descendent($node);
+				$data{$node->id} += $tax_xml->GetValue($node);
+			}
+		}
+	}
+	return ($tree,\%data);
 }
-
-sub PieDataRank {
-	my ($self,$sub_node,$rank) = @_;
-	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
-	if ($sub_node->descendent_count == 0) {
-		if ($self->{RANKS}{$sub_node->id} eq $rank) {
-			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_node->id});
-			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_node->id});
-			$pie_data{"Total"} += $self->{VALUES}{$sub_node->id};
-		}
-		elsif ($rank eq "species" and $self->{RANKS}{$sub_node->ancestor()->id} eq "species") {
-			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_node->id});
-			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_node->id});
-			$pie_data{"Total"} += $self->{VALUES}{$sub_node->id};
-		}
-	}
-	
-	for my $sub_sub_node($sub_node->get_all_Descendents) {
-		if ($self->{RANKS}{$sub_sub_node->id} eq $rank){	
-			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
-			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
-			$pie_data{"Total"} += $self->{VALUES}{$sub_sub_node->id};
-		}
-		elsif ($rank eq "species" and $self->{RANKS}{$sub_sub_node->ancestor()->id} eq "species") {
-			push(@{$pie_data{"Names"}},$self->{NAMES}{$sub_sub_node->id});
-			push(@{$pie_data{"Values"}},$self->{VALUES}{$sub_sub_node->id});
-			$pie_data{"Total"} += $self->{VALUES}{$sub_sub_node->id};
-		}
-	}
-	return \%pie_data;
-}
-
-sub FindNode {
-	my ($self,$sub_node_name) = @_;
-	for my $node($self->{Tree}->get_nodes) {
-		if ($self->{NAMES}{$node->id} eq $sub_node_name) {
-			return $node;
-		}
-	}
-}
-
-sub GetNamesAlphabetically {
-	my ($self) = @_;
-	my @node_names = ();
-	for my $node($self->{Tree}->get_nodes) {
-		push(@node_names,$self->{NAMES}{$node->id});
-	}
-	my @alpha = (sort {lc($a) cmp lc($b)} @node_names);
-	return \@alpha;
-}
-
-sub GetNodesLevel {
-	my ($self,$level) = @_;
-	my @level_nodes = ();
-	for my $node($self->{Tree}->get_nodes) {
-		if ($self->{RANKS}{$node->id} eq $level) {
-			push(@level_nodes,$self->{RANKS}{$node->id});
-		}
-	}
-	return \@level_nodes;
-}
-
-#takes a BioPerl Tree (or "node");
-sub PrintSummaryTextSpecies {
-	my ($self,$dir,$result_name) = @_;
-	
-	chdir($dir);
-	
-	## BioPerl's depth routine does not seem to work well.
-	sub GetDepth {
-		my ($node) = @_;
-		my $depth = 0;
-		while (defined $node->ancestor) {
-			$depth++;
-			$node = $node->ancestor;
-		}
-		return $depth;
-	}
-	
-	my $root = $self->{Tree}->get_root_node;
-	open(TREE,'>>' . $result_name . "." . $self->{NAMES}{$root->id} . '.txt');
-	for my $node($self->{Tree}->get_nodes) {
-		next if ($node->descendent_count != 0);
-		print TREE $result_name . " " . $self->{NAMES}{$node->id} . ": " . $self->{VALUES}->{$node->id} . "\n";
-	}
-	close TREE;
-}
-
 
 1;
