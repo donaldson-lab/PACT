@@ -14,12 +14,17 @@
     the interpretation of results from large sequence similarity searches, particulary from BLAST.</p>
     <a name="Parsing">
     <h3>Parsing</h3>
-    <p>To start an analysis with PACT, you need a BLAST file and the corresponding FASTA sequence file that produced the alignments. PACT will open with the Parser menu, but you can also click "File" and then "New Parser." In the section "Input  Files" enter a name for the parsing job and find the BLAST and FASTA files. These fields are mandatory</p> 
+    <p>To start an analysis with PACT, you need a BLAST file and the corresponding FASTA sequence file that produced the alignments. PACT will open with the Parser menu, but you can also click "File" and then "New Parser." In the section "Input  Files" enter a name for the parsing job and find the BLAST and FASTA files. These fields are mandatory.</p> 
     <p>In addition to the input files, PACT allows you to specify how you would like the hit information of the BLAST file to be categorized according to a taxonomy or a classification of your defining. 
-    <br/><li>Currently, PACT only bases taxonomic information on the NCBI Taxonomy, which is incomplete. </p>
+    <br/><li>Currently, PACT only bases taxonomic information on the NCBI Taxonomy, which is incomplete and unofficial. There are two options for the source of this information. PACT can obtain a hit's taxonomic rank directly from NCBI's <a href="ftp://ftp.ncbi.nih.gov/pub/taxonomy/">website</a>, which requires an internet connection, or it can search files on your computer downloaded from that website. The advantages of using the local files are that you can still categorize by taxonomy without a connection and that the search is a bit faster.  The disadvantage is that all of the hits may not necessarily be found to belong to a taxonomy.  This is because the search on the local files is based on keywords, not on identification number. To choose the source of your taxonomic search, choose "Connection" or "Local Files" in the "Source" drop-down bar (if left blank, PACT will not search by taxonomy at all).
+<br/><li> Classification.
+<br/><li>Queuing. You can place several parsing jobs on a queue to be executed all at one time. To add a job to the queue, just press the "add" button while making sure the mandatory fields are filled. To edit a parsing job on the queue, you must make sure that job is highlighted in the queue box.</p>
     <a name="Database">
     <h3>Viewing Database Results</h3>
     <a name="Managing">
+    <h3>Managing Results</h3>
     <a name="PieCharts">
+    <h3>Viewing Pie Charts</h3>
+    <p>PACT allows you to view pie charts generated from the saved classification and taxonomic searches from past results. </p>
   </body>
 </html>
