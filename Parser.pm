@@ -18,6 +18,7 @@ use strict;
 package Parser;
 use Bio::SearchIO;
 use Bio::SeqIO;
+use Bio::Search::Iteration::GenericIteration;
 use XML::Simple;
 use File::Path;
 
@@ -146,6 +147,7 @@ sub Parse {
 
 		if (my $firsthit = $result->next_hit) {
 			if (my $firsthsp = $firsthit->next_hsp) {
+				
 				## Check threshold parameters.
 				if ($firsthsp->evalue > $self->{Evalue}) {
 					next;
@@ -217,6 +219,8 @@ This is a base class for parsing sequence similarity search output files.
 =cut
 
 package BlastParser;
+use Bio::Search::Result::BlastResult;
+use Bio::Search::Hit::BlastHit;
 use base ("Parser");
 
 sub new {
@@ -236,7 +240,6 @@ sub new {
 sub SetBlastFile {
 	my ($self,$blast_name) = @_;
 	$self->{BlastFile} = $blast_name;
-	$self->{In} = new Bio::SearchIO(-format => 'blastxml', -file   => $blast_name);
 	if (-e $blast_name and $blast_name ne "") {
 		eval {
 			my $xml = new XML::Simple;
@@ -353,7 +356,7 @@ sub PrintHitFileHeader {
 	my ($self,$dir,$hitname,$num_queries) = @_;
 	
 	chdir($dir);
-	open(HITFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".pact.txt");
+	open(HITFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".txt");
 	print HITFILE $hitname . "\n",
 			"Total Number of Queries per Hit: " . $num_queries . "\n" . "\n";
 	
@@ -415,7 +418,7 @@ sub PrintFasta {
 	my ($self,$dir,$hitname,$query_name,$sequence) = @_;
 	
 	chdir($dir);
-	open(FASTAFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".pact.fasta");
+	open(FASTAFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".fasta");
 	
 	print FASTAFILE ">" . $query_name . "\n";
   	print FASTAFILE $sequence . "\n";
@@ -580,6 +583,7 @@ sub SaveRoutine {
 package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
+use Bio::TreeIO::phyloxml;
 use base ("Process");
 
 sub new {
@@ -686,7 +690,7 @@ sub GetTrees {
 	            }
 			};
 			if ($@) {
-				print "Unable to merge or create tree $id\n"
+				#print "Unable to merge or create tree $id\n"
 			};
 		}
 		if (defined $tree and $tree->number_nodes > 0) {
@@ -924,7 +928,6 @@ sub new {
      
      my $self = $class->SUPER::new($control);
      $self->{TableName} = $parser_name;
-     $self->{Control}->AddTableName($parser_name);
      $self->MakeTables();
      $self->{GIs} = (); # Hash of gi numbers as primary keys for HitInfo
      bless($self,$class);
@@ -1070,6 +1073,7 @@ sub PieAllClassifiersData {
 
 
 package TaxonomyXML;
+use Bio::TreeIO::phyloxml;
 
 sub new {
 	my ($class) = @_;
@@ -1292,7 +1296,7 @@ sub PrintSummaryText {
 		next unless AboveRank($node,$rank) == 0 and $rank ne "";
 		my $space = "";
 		my $depth = GetDepth($node,$rank);
-		print $self->GetName($node) . " " . $self->GetRank($node) . " " . $depth . "\n";
+		# print $self->GetName($node) . " " . $self->GetRank($node) . " " . $depth . "\n";
 		for (my $i=0; $i<$depth; $i++) {
 			$space = $space . "  ";
 		}

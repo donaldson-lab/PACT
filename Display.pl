@@ -2,7 +2,6 @@ use strict;
 use Wx;
 use Parser;
 use PieViewer;
-use TaxonomyViewer;
 use IO::File;
 use Cwd;
 
@@ -36,9 +35,10 @@ sub new {
 
 sub GetCurrentDirectory {
 	my ($self) = @_;
+	
 	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS")) {
 		my $owner = getpwuid($>);
-		$self->{CurrentDirectory} ="/Users/virushunter1/Desktop/pact_XML" ; # "/Users/" . $owner . "/PACT";
+		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
 	}
 	else {
 		
@@ -99,6 +99,7 @@ sub AddTableName {
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
 	my $key = $self->GenerateTableKey();
 	$TABLENAMES{$key} = $label;
+	return $key;
 }
 
 sub GetTableNames {
@@ -480,8 +481,8 @@ sub MainDisplay {
 	
 	my $gbutton_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $gbutton_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $generate_button = Wx::Button->new($self->{GeneratePanel},-1,"Generate");
-	$gbutton_sizer_v->Add($generate_button,1,wxCENTER);
+	$self->{GenerateButton} = Wx::Button->new($self->{GeneratePanel},-1,"Generate");
+	$gbutton_sizer_v->Add($self->{GenerateButton},1,wxCENTER);
 	$gbutton_sizer_h->Add($gbutton_sizer_v,1,wxCENTER);
 	$self->{GeneratePanel}->SetSizer($gbutton_sizer_h);
 	
@@ -492,7 +493,7 @@ sub MainDisplay {
 
 	$self->Layout;
 	
-	EVT_BUTTON($self->{GeneratePanel},$generate_button,sub{$self->GenerateCharts()});
+	EVT_BUTTON($self->{GeneratePanel},$self->{GenerateButton},sub{$self->GenerateCharts()});
 }
 
 sub CenterDisplay {
@@ -505,23 +506,23 @@ sub CenterDisplay {
 	$file_panel->SetBackgroundColour($blue);
 	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	my $file_list_label = Wx::StaticBox->new($file_panel,-1,$self->{FileLabel});
-	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
-	my $browse_button = Wx::Button->new($file_panel,-1,"Browse");
+	$self->{ItemListLabel} = Wx::StaticBox->new($file_panel,-1,$self->{FileLabel});
+	$self->{ItemListLabelSizer} = Wx::StaticBoxSizer->new($self->{ItemListLabel},wxVERTICAL);
+	$self->{BrowseButton} = Wx::Button->new($file_panel,-1,"Browse");
 	$self->{FileBox} = FileBox->new($file_panel);
-	$file_list_label_sizer->Add($browse_button,1,wxCENTER);
-	$file_list_label_sizer->Add($self->{FileBox}->{ListBox},7,wxEXPAND);
+	$self->{ItemListLabelSizer}->Add($self->{BrowseButton},1,wxCENTER);
+	$self->{ItemListLabelSizer}->Add($self->{FileBox}->{ListBox},7,wxEXPAND);
 	
-	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
+	$file_sizer->Add($self->{ItemListLabelSizer},3,wxCENTER|wxEXPAND);
 	$file_panel->Layout;
 	$file_panel->SetSizer($file_sizer);
 	
 	my $chart_button_sizer_outer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $chart_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	my $add_button = Wx::Button->new($self,-1,"Add");
-	my $remove_button = Wx::Button->new($self,-1,"Remove");
-	$chart_button_sizer->Add($add_button,1,wxCENTER|wxBOTTOM,10);
-	$chart_button_sizer->Add($remove_button,1,wxCENTER|wxTOP,10);
+	$self->{AddButton} = Wx::Button->new($self,-1,"Add");
+	$self->{RemoveButton} = Wx::Button->new($self,-1,"Remove");
+	$chart_button_sizer->Add($self->{AddButton},1,wxCENTER|wxBOTTOM,10);
+	$chart_button_sizer->Add($self->{RemoveButton},1,wxCENTER|wxTOP,10);
 	$chart_button_sizer_outer->Add($chart_button_sizer,1,wxCENTER);
 	
 	$self->{EmptyPanel} = $self->NewTypePanel();
@@ -547,9 +548,9 @@ sub CenterDisplay {
 	
 	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew(); $self->{ChartBox}->{ListBox}->SetSelection(-1);});
 	EVT_LISTBOX($self,$self->{ChartBox}->{ListBox},sub{$self->DisplayPiePanel();});
-	EVT_BUTTON($self,$browse_button,sub{$self->LoadFile()});
-	EVT_BUTTON($self,$add_button,sub{$self->AddPieChart();});
-	EVT_BUTTON($self,$remove_button,sub{$self->DeleteChart();});
+	EVT_BUTTON($self,$self->{BrowseButton},sub{$self->LoadFile()});
+	EVT_BUTTON($self,$self->{AddButton},sub{$self->AddPieChart();});
+	EVT_BUTTON($self,$self->{RemoveButton},sub{$self->DeleteChart();});
 }
 
 sub AddPieChart {
@@ -1115,6 +1116,7 @@ sub MainDisplay {
 	
 	$self->CompareTables($table_names,$bit,$evalue);
 	$self->SetSizer($sizer);
+
 	EVT_SIZE($self,\&OnSize);
 }
 
@@ -1312,128 +1314,71 @@ use Wx qw /:everything/;
 use Wx::Event qw(EVT_LISTBOX);
 use Wx::Event qw(EVT_LISTBOX_DCLICK);
 use Wx::Event qw(EVT_BUTTON);
-use base 'Wx::Panel';
+use base ("ClassificationPiePanel");
 
 sub new {
 	my ($class,$parent) = @_;
 	
-	my $self = $class->SUPER::new($parent,-1);
-	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{MainPanel} = Wx::Panel->new($self,-1);
-	$self->{TableDisplay} = undef;
-	$self->{ResultListBox} = undef;
+	my $self = $class->SUPER::new($parent,"Result Tables");
+	$self->{ResultListBox} = $self->{FileBox};
+	$self->{CompareListBox} = $self->{ChartBox};
 	bless ($self,$class);
 	$self->UpdateItems();
-	$self->SetSizer($self->{Sizer});
+	$self->{GenerateButton}->SetLabel("View");
+	$self->{ItemListLabelSizer}->Remove($self->{BrowseButton});
+	$self->{BrowseButton}->Destroy;
+	EVT_BUTTON($self,$self->{AddButton},sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
+	EVT_BUTTON($self,$self->{RemoveButton},sub{$self->DeleteCompareResult()});
 	$self->Layout;
 	return $self;
 }
 
 sub UpdateItems {
 	my ($self) = @_;
-	$self->{Sizer}->Clear;
-	if (defined $self->{TableDisplay}) {
-		$self->{TableDisplay}->Destroy;
-	}
-	$self->Refresh;
-	$self->MainDisplay();
-	$self->{MainPanel}->Show;
-	$self->Layout;
+	$control->AddResultsBox($self->{ResultListBox});
 }
 
-sub MainDisplay {
+sub NewTypePanel {
 	my ($self) = @_;
+	my $panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$panel->SetBackgroundColour($blue);
 	
-	$self->{MainPanel}->DestroyChildren;
-	$self->{MainPanel}->SetBackgroundColour($green);
-	
-	my $leftpanelsizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	my $leftsizer = Wx::BoxSizer->new(wxHORIZONTAL);
-	
-	my $queuetext = Wx::StaticBox->new($self->{MainPanel},-1,"Choose Result");
-	my $qtextsizer = Wx::StaticBoxSizer->new($queuetext,wxVERTICAL);
-	$self->{ResultListBox} = FileBox->new($self->{MainPanel});
-	$qtextsizer->Add($self->{ResultListBox}->{ListBox},1,wxEXPAND);
-	$control->AddResultsBox($self->{ResultListBox});
-	
-	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $add_button = Wx::Button->new($self->{MainPanel},-1,"Add");
-	$add_sizer_v->Add($add_button,1,wxCENTER);
-	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
-	
-	my $comparetext = Wx::StaticBox->new($self->{MainPanel},-1,"Result(s) to View");
-	my $comparesizer = Wx::StaticBoxSizer->new($comparetext,wxVERTICAL);
-	$self->{CompareListBox} = FileBox->new($self->{MainPanel});
-	$comparesizer->Add($self->{CompareListBox}->{ListBox},1,wxEXPAND);
-	
-	$leftsizer->Add($qtextsizer,4,wxEXPAND);
-	$leftsizer->Add($add_sizer_h,1,wxCENTER);
-	$leftsizer->Add($comparesizer,4,wxEXPAND);
+	my $panel_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
+	my $panel_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	
 	my $paramsizer = Wx::BoxSizer->new(wxVERTICAL);
 	
-	my $choice_text = Wx::StaticBox->new($self->{MainPanel},-1,"Filter Parameters: ");
+	my $choice_text = Wx::StaticBox->new($panel,-1,"Filter Parameters: ");
 	my $choice_wrap = Wx::StaticBoxSizer->new($choice_text, wxVERTICAL);
 	my $choice_sizer = Wx::FlexGridSizer->new(2,2,20,20);
 	
-	my $bit_label = Wx::StaticText->new($self->{MainPanel},-1,"Bit Score:");
+	my $bit_label = Wx::StaticText->new($panel,-1,"Bit Score:");
 	$choice_sizer->Add($bit_label,1,wxCENTER);
-	$self->{BitTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"");
+	$self->{BitTextBox} = Wx::TextCtrl->new($panel,-1,"");
 	$self->{BitTextBox}->SetValue("40.0");
 	$choice_sizer->Add($self->{BitTextBox},1,wxCENTER);
 	
-	my $e_label = Wx::StaticText->new($self->{MainPanel},-1,"E-value:");
+	my $e_label = Wx::StaticText->new($panel,-1,"E-value:");
 	$choice_sizer->Add($e_label,1,wxCENTER);
-	$self->{EValueTextBox} = Wx::TextCtrl->new($self->{MainPanel},-1,"");
+	$self->{EValueTextBox} = Wx::TextCtrl->new($panel,-1,"");
 	$self->{EValueTextBox}->SetValue("0.001");
 	$choice_sizer->Add($self->{EValueTextBox},1,wxCENTER);
 	$choice_wrap->Add($choice_sizer,3,wxCENTER|wxEXPAND);
 	
 	$paramsizer->Add($choice_wrap,1,wxCENTER);
 	
-	my $view_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
-	my $view_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
-	my $view_button = Wx::Button->new($self->{MainPanel},-1,"View");
-	$view_sizer_v->Add($view_button,1,wxCENTER);
-	$view_sizer_h->Add($view_sizer_v,1,wxCENTER);
+	$panel_sizer_v->Add($paramsizer,1,wxCENTER);
+	$panel_sizer_h->Add($panel_sizer_v,1,wxCENTER);
 	
-	$paramsizer->Add($view_sizer_h,1,wxCENTER);
+	$panel->SetSizer($panel_sizer_h);
 	
-	$leftpanelsizer->Add($leftsizer,1,wxEXPAND);
-	$leftpanelsizer->Add($paramsizer,1,wxEXPAND);
-	
-	$self->{MainPanel}->SetSizer($leftpanelsizer);
-	$self->{MainPanel}->Layout;
-	$self->{Sizer}->Add($self->{MainPanel},1,wxEXPAND);
-	EVT_BUTTON($self,$view_button,sub{$self->DisplayTable()});
-	EVT_BUTTON($self,$add_button,sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
-	EVT_LISTBOX_DCLICK($self,$self->{CompareListBox}->{ListBox},sub{$self->DeleteCompareResult()});
-}
-
-sub DisplayTable {
-	my ($self) = @_;
-	
-	my $table_names = $self->{CompareListBox}->GetAllFiles;
-	my $bit = scalar($self->{BitTextBox}->GetValue);
-	my $evalue = scalar($self->{EValueTextBox}->GetValue);
-	
-	$self->{MainPanel}->Hide;
-	$self->{Sizer}->Clear;
-	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TableDisplay} = TableDisplay->new($self,$table_names,$bit,$evalue);
-	$self->{Sizer}->Add($self->{TableDisplay},1,wxEXPAND);
-	$self->Refresh;
-	$self->Layout;
-	$self->{TableDisplay}->OnSize(0);
-	$self->Show;
+	return $panel;
 }
 
 sub DeleteCompareResult {
 	my ($self) = @_;
 	my $delete_dialog = OkDialog->new($self,"Delete","Remove Result?");
-	if ($delete_dialog->ShowModal == wxID_OK) {
+	if ($delete_dialog->ShowModal == wxID_OK and $self->{CompareListBox}->{ListBox}->GetCount > 0) {
 		$self->{CompareListBox}->DeleteFile;
 	}
 	$delete_dialog->Destroy;
@@ -1583,9 +1528,7 @@ sub NewParserMenu {
 	$self->{ParserMenu} = Wx::Panel->new($self,-1);
 	$self->{ParserMenu}->SetBackgroundColour($green);
 	
-	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
-	
-	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1); #self->{ParserMenu}
+	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1);
 	$self->{OptionsNotebook}->SetBackgroundColour($green);
 	
 	my $filespanel = $self->InputFilesMenu();
@@ -1601,8 +1544,6 @@ sub NewParserMenu {
 	$self->{OptionsNotebook}->AddPage($add_panel,"Output");
 	
 	$self->{OptionsNotebook}->Layout;
-	$sizer->Add($self->{OptionsNotebook},1,wxEXPAND);
-	$self->{ParserMenu}->SetSizer($sizer);
 	$self->{ParserMenu}->Layout;
 	
 }
@@ -1733,7 +1674,7 @@ sub TaxonomyMenu {
 	my $source_label = Wx::StaticBox->new($tax_panel,-1,"Source");
 	my $source_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $source_label_sizer = Wx::StaticBoxSizer->new($source_label,wxHORIZONTAL);
-	$self->{SourceCombo} = Wx::ComboBox->new($tax_panel,-1,"",wxDefaultPosition,wxDefaultSize,["Connection","Local Files"]);
+	$self->{SourceCombo} = Wx::ComboBox->new($tax_panel,-1,"",wxDefaultPosition,wxDefaultSize,["","Connection","Local Files"]);
 	$self->{SourceCombo}->SetValue("");
 	$source_label_sizer->Add($self->{SourceCombo},1,wxCENTER);
 	$source_sizer->Add($source_label_sizer,3,wxCENTER);
@@ -2172,7 +2113,8 @@ sub GenerateParser {
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
 	if ($page->{TableCheck}->GetValue==1) {
-			my $table = SendTable->new($control,$page->{ParserNameTextCtrl}->GetValue);
+			my $table_key = $control->AddTableName($page->{ParserNameTextCtrl}->GetValue);
+			my $table = SendTable->new($control,$table_key);
 			$parser->AddProcess($table);
 	}
 
@@ -2278,7 +2220,6 @@ sub new {
 	my ($class,$parent) = @_;
 	
 	my $self = $class->SUPER::new($parent,-1);
-	$self->SetBackgroundColour($green);
 	$self->{Parent} = $parent;
 	$self->{Keys} = ();
 	$self->{Sizer} = Wx::BoxSizer->new(wxVERTICAL);
@@ -2302,7 +2243,7 @@ sub ShowResults {
 	$self->SetupListCtrl();
 	$self->Fill();
 	
-	$self->{Sizer}->Add($self->{ResultsCtrl},1,wxEXPAND|wxTOP|wxBOTTOM|wxRIGHT|wxLEFT,5);
+	$self->{Sizer}->Add($self->{ResultsCtrl},1,wxEXPAND);
 	$self->SetSizer($self->{Sizer});
 	
 	EVT_SIZE($self,\&OnSize);
@@ -2338,25 +2279,22 @@ sub OnSize {
 
 sub Fill {
 	my ($self) = @_;
-	my $parser_names = $control->GetParserNames();
+	my $table_names = $control->GetTableNames();
 	my $i = 0;
-	for my $key(keys(%{$parser_names})) {
+	for my $key(keys(%{$table_names})) {
 		push(@{$self->{Keys}},$key);
 		my $item = $self->{ResultsCtrl}->InsertStringItem($i,"");
 		$self->{ResultsCtrl}->SetItemData($item,$i);
-		$self->{ResultsCtrl}->SetItem($i,0,$parser_names->{$key});
+		$self->{ResultsCtrl}->SetItem($i,0,$table_names->{$key});
 		$self->{ResultsCtrl}->SetItem($i,1,$self->GetDate($key));
-		$self->{ResultsCtrl}->SetItem($i,2,$control->GetDirSize($key));
+		$self->{ResultsCtrl}->SetItem($i,2,"N/A");
 		$i++;
 	}
 }
 
 sub GetDate {
 	my ($self,$key) = @_;
-	# to be removed from program release
-	if ($key =~ /187111/) {
-		return "August 18, 2011";
-	}
+	
 	my %months = (0=>"January",1=>"February",2=>"March",3=>"April",4=>"May",5=>"June",6=>"July",7=>"August",8=>"September",9=>"October",10=>"November",11=>"December");
 	my $day = $1 if ($key =~ /d(\d{1,2})/);
 	my $month_key = $1 if ($key =~ /m(\d{1,2})/);
@@ -2491,7 +2429,24 @@ sub InitializeTableViewer {
 		$self->{TablePanel}->UpdateItems();
 	}
 	$self->DisplayPanel($self->{TablePanel});
-	
+	EVT_BUTTON($self->{TablePanel}->{GeneratePanel},$self->{TablePanel}->{GenerateButton},sub{$self->DisplayTable()});
+}
+
+sub DisplayTable {
+	my ($self) = @_;
+	if (not defined $self->{TableDisplay}) {
+		my $table_names = $self->{TablePanel}->{CompareListBox}->GetAllFiles;
+		my $bit = scalar($self->{TablePanel}->{BitTextBox}->GetValue);
+		my $evalue = scalar($self->{TablePanel}->{EValueTextBox}->GetValue);
+		
+		$self->{TableDisplay} = TableDisplay->new($self,$table_names,$bit,$evalue);
+		push(@{$self->{PanelArray}},$self->{TableDisplay});	
+	}
+	else {
+		$self->{TableDisplay}->UpdateItems();
+	}
+	$self->DisplayPanel($self->{TableDisplay});
+	$self->{TableDisplay}->OnSize(0);
 }
 
 sub InitializeResultManager {
@@ -2532,18 +2487,15 @@ sub TopMenu {
 
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"Parser Menu");
-	#my $manage = $self->{FileMenu}->Append(102,"Manage Results");
+	my $manage = $self->{FileMenu}->Append(102,"Manage Table Results");
 	$self->{FileMenu}->AppendSeparator();
 	my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
 	$self->{FileMenu}->AppendSeparator();
-	my $save_trees = $self->{FileMenu}->Append(104,"Save Trees");
-	$self->{FileMenu}->AppendSeparator();
-	my $close = $self->{FileMenu}->Append(105,"Quit");
+	my $close = $self->{FileMenu}->Append(104,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
-	#EVT_MENU($self,102,\&InitializeResultManager);
+	EVT_MENU($self,102,\&InitializeResultManager);
 	EVT_MENU($self,103,\&TaxonomyFileUpdater);
-	EVT_MENU($self,104,\&InitializeTreeSaveMenu);
-	EVT_MENU($self,105,sub{$self->Close(1)});
+	EVT_MENU($self,104,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
 	my $table = $viewmenu->Append(201,"Table");
@@ -2552,10 +2504,12 @@ sub TopMenu {
 	$pie->Append(202,"Taxonomy");
 	$pie->Append(203,"Classification");
 	my $tax = $viewmenu->Append(204,"Tree");
+	my $save_trees = $viewmenu->Append(205,"Save Trees");
 	EVT_MENU($self,201,\&InitializeTableViewer);
 	EVT_MENU($self,202,\&InitializeTaxPieMenu);
 	EVT_MENU($self,203,\&InitializeClassPieMenu);
 	EVT_MENU($self,204,\&InitializeTreeViewMenu);
+	EVT_MENU($self,205,\&InitializeTreeSaveMenu);
 	
 	my $helpmenu = Wx::Menu->new();
 	my $manual = $helpmenu->Append(301,"Contents");
