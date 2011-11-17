@@ -502,49 +502,49 @@ sub CenterDisplay {
 
 	$self->{CenterDisplay} = Wx::BoxSizer->new(wxHORIZONTAL);
 
-	my $file_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$file_panel->SetBackgroundColour($blue);
+	$self->{FilePanel} = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$self->{FilePanel}->SetBackgroundColour($blue);
 	my $file_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	$self->{ItemListLabel} = Wx::StaticBox->new($file_panel,-1,$self->{FileLabel});
+	$self->{ItemListLabel} = Wx::StaticBox->new($self->{FilePanel},-1,$self->{FileLabel});
 	$self->{ItemListLabelSizer} = Wx::StaticBoxSizer->new($self->{ItemListLabel},wxVERTICAL);
-	$self->{BrowseButton} = Wx::Button->new($file_panel,-1,"Browse");
-	$self->{FileBox} = FileBox->new($file_panel);
+	$self->{BrowseButton} = Wx::Button->new($self->{FilePanel},-1,"Browse");
+	$self->{FileBox} = FileBox->new($self->{FilePanel});
 	$self->{ItemListLabelSizer}->Add($self->{BrowseButton},1,wxCENTER);
 	$self->{ItemListLabelSizer}->Add($self->{FileBox}->{ListBox},7,wxEXPAND);
 	
 	$file_sizer->Add($self->{ItemListLabelSizer},3,wxCENTER|wxEXPAND);
-	$file_panel->Layout;
-	$file_panel->SetSizer($file_sizer);
+	$self->{FilePanel}->Layout;
+	$self->{FilePanel}->SetSizer($file_sizer);
 	
-	my $chart_button_sizer_outer = Wx::BoxSizer->new(wxHORIZONTAL);
+	$self->{ButtonsSizer} = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $chart_button_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	$self->{AddButton} = Wx::Button->new($self,-1,"Add");
 	$self->{RemoveButton} = Wx::Button->new($self,-1,"Remove");
 	$chart_button_sizer->Add($self->{AddButton},1,wxCENTER|wxBOTTOM,10);
 	$chart_button_sizer->Add($self->{RemoveButton},1,wxCENTER|wxTOP,10);
-	$chart_button_sizer_outer->Add($chart_button_sizer,1,wxCENTER);
+	$self->{ButtonsSizer}->Add($chart_button_sizer,1,wxCENTER);
 	
 	$self->{EmptyPanel} = $self->NewTypePanel();
 	$self->{TypePanel} = $self->{EmptyPanel};
 	
-	my $chart_panel = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
-	$chart_panel->SetBackgroundColour($blue);
+	$self->{ChartPanel} = Wx::Panel->new($self,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
+	$self->{ChartPanel}->SetBackgroundColour($blue);
 	my $chart_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	
-	my $chart_list_label = Wx::StaticBox->new($chart_panel,-1,$self->{GroupLabel});
+	my $chart_list_label = Wx::StaticBox->new($self->{ChartPanel},-1,$self->{GroupLabel});
 	my $chart_list_label_sizer = Wx::StaticBoxSizer->new($chart_list_label,wxVERTICAL);
-	$self->{ChartBox} = FileBox->new($chart_panel);
+	$self->{ChartBox} = FileBox->new($self->{ChartPanel});
 	$chart_list_label_sizer->Add($self->{ChartBox}->{ListBox},1,wxEXPAND);
 	
 	$chart_sizer->Add($chart_list_label_sizer,3,wxCENTER|wxEXPAND);
-	$chart_panel->Layout;
-	$chart_panel->SetSizer($chart_sizer);
+	$self->{ChartPanel}->Layout;
+	$self->{ChartPanel}->SetSizer($chart_sizer);
 	
-	$self->{CenterDisplay}->Add($file_panel,3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
+	$self->{CenterDisplay}->Add($self->{FilePanel},3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
 	$self->{CenterDisplay}->Add($self->{TypePanel},5,wxTOP|wxBOTTOM|wxCENTER|wxEXPAND,10);
-	$self->{CenterDisplay}->Add($chart_button_sizer_outer,1,wxCENTER|wxEXPAND,10);
-	$self->{CenterDisplay}->Add($chart_panel,3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
+	$self->{CenterDisplay}->Add($self->{ButtonsSizer},1,wxCENTER|wxEXPAND,10);
+	$self->{CenterDisplay}->Add($self->{ChartPanel},3,wxTOP|wxCENTER|wxEXPAND|wxBOTTOM,10);
 	
 	EVT_LISTBOX($self,$self->{FileBox}->{ListBox},sub{$self->DisplayNew(); $self->{ChartBox}->{ListBox}->SetSelection(-1);});
 	EVT_LISTBOX($self,$self->{ChartBox}->{ListBox},sub{$self->DisplayPiePanel();});
@@ -1323,10 +1323,16 @@ sub new {
 	$self->{ResultListBox} = $self->{FileBox};
 	$self->{CompareListBox} = $self->{ChartBox};
 	bless ($self,$class);
-	$self->UpdateItems();
+	
+	$self->{CenterDisplay}->Detach($self->{ButtonsSizer});
+	$self->{CenterDisplay}->Detach($self->{ChartPanel});
+	$self->{CenterDisplay}->Insert(1,$self->{ButtonsSizer},1,wxCENTER|wxEXPAND,10);
+	$self->{CenterDisplay}->Insert(2,$self->{ChartPanel},3,wxCENTER|wxEXPAND|wxTOP|wxBOTTOM,10);
+
 	$self->{GenerateButton}->SetLabel("View");
 	$self->{ItemListLabelSizer}->Remove($self->{BrowseButton});
 	$self->{BrowseButton}->Destroy;
+	$self->UpdateItems();
 	EVT_BUTTON($self,$self->{AddButton},sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
 	EVT_BUTTON($self,$self->{RemoveButton},sub{$self->DeleteCompareResult()});
 	$self->Layout;
