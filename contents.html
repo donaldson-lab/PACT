@@ -25,7 +25,11 @@
 </li>
 <li> Parameters. The two parameters for parsing are the bit score and e-value.  If a hit's bit score is lower than the specified value, or if its e-value is higher, PACT will skip it while parsing.
 </li>
-<li> Output.
+<li> Output. You must specify an output folder where the results of the parsing will be placed.  Every parsing, regardless of whether the text file option is checked,
+will produce a folder called "No Hits" and a summary text file.  The No Hits folder will contain a FASTA file with every hit that did not produce an alignment in the
+BLAST output file.  The summary text file contains all highest-scoring hits for each hit sequence, followed by the total number discovered. If the user has defined a taxonomy, classification, or flag files option, the results of those searches will also appear in the output folder.
+<br>
+If the text files option is checked, PACT will create a folder for each hit containing a FASTA file with the sequences that produced the hit alignment and a text file with information on the hit. If this choice is selected in conjunction with the NCBI taxonomy option, the folders will be nested in a tree structure based on the taxonomy.
 </li> 
 </ul>
 <br>Queuing. You can place several parsing jobs on a queue to be executed all at one time. To add a job to the queue, just press the "add" button while making sure the mandatory fields are filled. To edit a parsing job on the queue, you must make sure that job is highlighted in the queue box. </p>
