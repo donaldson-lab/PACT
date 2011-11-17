@@ -888,15 +888,23 @@ sub SaveTree {
 			$format = "newick";
 		}
 		
+		my $helper = TaxonomyXML->new();
 		if ($format eq "newick") {
+			for my $node($tree->get_nodes) {
+				$node->id($helper->GetName($node));
+			}
 			
+			open(my $handle, ">>" . $save_dialog->GetPath());
+			my $treeio = Bio::TreeIO->new(-format => 'newick',-fh => $handle);
+			$treeio->write_tree($tree);
 		}
 		elsif ($format eq "phyloxml") {
-			my $write_xml = TaxonomyXML->new();
-			$write_xml->SaveTreePhylo($tree,$data,$self->{TitleBox}->GetValue,$save_dialog->GetPath());
+			$helper->SaveTreePhylo($tree,$data,$self->{TitleBox}->GetValue,$save_dialog->GetPath());
 		}
 		elsif ($format eq "nhx") {
-			
+			open(my $handle, ">>" . $save_dialog->GetPath());
+			my $treeio = Bio::TreeIO->new(-format => 'nhx',-fh => $handle);
+			$treeio->write_tree($tree);
 		}
 		else {
 			
