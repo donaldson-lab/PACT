@@ -39,6 +39,7 @@ sub GetCurrentDirectory {
 	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS")) {
 		my $owner = getpwuid($>);
 		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
+		mkdir($self->{CurrentDirectory});
 	}
 	else {
 		
@@ -56,7 +57,7 @@ sub SetTaxDump {
 
 sub DownloadNCBITaxonomies {
 	my $self = shift;
-	
+	chdir($self->{TaxDump});
 	## errors: what if no connection? File does not exist?
 	
 	my $url = "ftp://ftp.ncbi.nih.gov/pub/taxonomy/";

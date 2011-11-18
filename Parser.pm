@@ -1100,6 +1100,7 @@ sub PieDataRank {
 	my ($self,$sub_node,$rank) = @_;
 	my %pie_data = {"Names"=>[],"Values"=>[],"Total"=>0};
 	my $subtotal = 0;
+	$pie_data{"Total"} = $self->GetValue($sub_node);
 	if ($sub_node->descendent_count == 0) {
 		if ($self->GetRank($sub_node) eq $rank) {
 			push(@{$pie_data{"Names"}},$self->GetName($sub_node));
@@ -1111,26 +1112,29 @@ sub PieDataRank {
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_node));
 			$subtotal += $self->GetValue($sub_node);
 		}
+		return \%pie_data;
 	}
 	
 	for my $sub_sub_node($sub_node->get_all_Descendents) {
-		if ($self->GetRank($sub_sub_node) eq $rank){	
+		if ($self->GetRank($sub_sub_node) eq $rank){
 			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
 			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
 			$subtotal += $self->GetValue($sub_sub_node);
 		}
-		elsif ($rank eq "species" and $self->GetRank($sub_sub_node->ancestor()) eq "species") {
-			push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
-			push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
-			$subtotal += $self->GetValue($sub_sub_node);
-		}
+		#elsif ($rank eq "species" and $self->GetRank($sub_sub_node->ancestor()) eq "species") {
+		#	push(@{$pie_data{"Names"}},$self->GetName($sub_sub_node));
+		#	push(@{$pie_data{"Values"}},$self->GetValue($sub_sub_node));
+		#	$subtotal += $self->GetValue($sub_sub_node);
+		#	print $self->GetName($sub_sub_node) . "\n";
+		#}
 	}
-	$pie_data{"Total"} = $self->GetValue($sub_node);
 	
 	# The 'unassigned' case
-	push(@{$pie_data{"Names"}},"Unassigned");
 	my $unassigned_count = $pie_data{"Total"} - $subtotal;
-	push(@{$pie_data{"Values"}},$unassigned_count);
+	if ($unassigned_count > 0) {
+		push(@{$pie_data{"Names"}},"Unassigned");
+		push(@{$pie_data{"Values"}},$unassigned_count);
+	}
 	
 	return \%pie_data;
 }
