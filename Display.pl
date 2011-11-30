@@ -2333,6 +2333,8 @@ sub DeleteDialog {
 
 package Display;
 use Cwd;
+#use Cava::Packager;
+#Cava::Packager::SetResourcePath('c:/Users/virushunter1/Desktop/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -2493,7 +2495,7 @@ sub ShowContents {
 	my $height = $size->GetHeight();
 	my $window = Wx::HtmlWindow->new($contents_frame,-1);
 	$window->SetSize($width,$height);
-	$window->LoadPage($control->{CurrentDirectory} . $control->{PathSeparator} . "contents.html");
+	$window->LoadPage(Cava::Packager::GetResource('contents.html')); # $control->{CurrentDirectory} . $control->{PathSeparator} . 
 	$contents_frame->Show();
 }
 

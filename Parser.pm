@@ -1,5 +1,63 @@
 =head1 NAME
 
+Process
+
+=head1 SYNOPSIS
+
+Do not use directly.
+
+=head1 DESCRIPTION
+
+This is a base class for all objects taking a Parser query result one at a time while parsing.
+
+=cut
+
+package Process;
+
+sub new {
+     
+     my ($class,$control) = @_;
+     
+     my $self = {
+     	Data => undef,
+     	IdToName => undef,
+     	Control => $control # parent ProgramControl (same as in Display.pl)
+	 };
+     
+     bless($self,$class);
+     return $self;
+}
+
+sub PrintSummaryText {
+	my ($self,$dir) = @_;
+}
+
+# For specifics on hitdata, see HitData in Parser (above)
+sub HitRoutine {
+	my ($self,$hitdata) = @_;
+}
+
+# increment the Data hashes
+sub AddData {
+	my ($self,$id,$name) = @_;
+
+	if (not defined $self->{Data}{$id}) {
+		$self->{Data}{$id} = 1;
+	}
+	else {
+		$self->{Data}{$id} += 1;
+	}
+	$self->{IdToName}{$id} = $name;
+}
+
+# Save internally the values and structures obtained.
+sub SaveRoutine {
+	my ($self,$output_directory,$parser_name) = @_;
+}
+
+
+=head1 NAME
+
 Parser
 
 =head1 SYNOPSIS
@@ -21,22 +79,21 @@ use Bio::SeqIO;
 use Bio::Search::Iteration::GenericIteration;
 use XML::Simple;
 use File::Path;
+use base ("Process");
 
 sub new {
      
      my ($class,$control,$label,$dir) = @_;
-     
-     my $self = {
-     	SequenceFile =>  undef,
-     	OutputDirectory => $dir,
-     	In => undef, # The bioperl SearchIO object
-     	SequenceMemory => undef,
-     	Label => $label,
-     	DoneParsing => 0,
-     	NumSeqs => 0,
-     	Control => $control
-	 };
+     my $self = $class->SUPER::new($control);
+     $self->{SequenceFile} = undef;
+     $self->{OutputDirectory} = $dir;
+     $self->{In} = undef;
+     $self->{SequenceMemory} = undef;
+     $self->{Label} = $label;
+     $self->{DoneParsing} = 0;
+     $self->{NumSeqs} = 0;
 	 $self->{Processes} = ();
+	 
      bless($self,$class);
      return $self;
 
@@ -134,11 +191,19 @@ sub NoHits {
   	close NOHITSFASTA;
 }
 
+sub HitRoutine {
+	my ($self,$hitdata) = @_;
+	my $hitname = $hitdata->[3];
+	my $gi = $hitdata->[4];
+	$self->AddData($gi,$hitname);
+}
+
 sub Parse {
 	
 	my ($self,$progress_dialog) = @_;
 	
 	my $count = 0;
+	push(@{$self->{Processes}},$self);
 	
 	while( my $result = $self->{In}->next_result) {
 		$count++;
@@ -178,6 +243,41 @@ sub Parse {
 		$process->SaveRoutine($self->{OutputDirectory},$self->{Label});
 	}
 	$progress_dialog->Update(100);
+}
+
+sub SaveRoutine {
+	my ($self,$dir,$name) = @_;
+	$self->PrintSummaryText($dir);
+}
+
+sub PrintSummaryText {
+	my ($self,$dir) = @_;
+	
+	chdir($dir);
+	open(STATSFILE, '>>' .  "$self->{Label} HitTotals.txt");
+	
+	my %hitnames = reverse %{$self->{IdToName}};
+	my %hit2ids = ();
+	
+	##this probably can be done in one-liner
+	for my $hitname(keys(%hitnames)){
+		for my $key(keys(%{$self->{Data}})) {
+			if ($self->{IdToName}{$key} eq $hitname) {
+				if (defined $hit2ids{$hitname}) {
+					$hit2ids{$hitname} += $self->{Data}{$key};
+				}
+				else {
+					$hit2ids{$hitname} = $self->{Data}{$key};
+				}
+			}
+		}
+	}
+	
+	for my $hitname(keys(%hit2ids)) {
+		print STATSFILE $hitname . ": " . $hit2ids{$hitname} . "\n";	
+	}
+	
+	close STATSFILE;
 }
 
 
@@ -261,64 +361,6 @@ sub SetParameters {
 	$self->{Bit} = scalar($bit);
 	$self->{Evalue} = scalar($evalue);
 }
-
-=head1 NAME
-
-Process
-
-=head1 SYNOPSIS
-
-Do not use directly.
-
-=head1 DESCRIPTION
-
-This is a base class for all objects taking a Parser query result one at a time while parsing.
-
-=cut
-
-package Process;
-
-sub new {
-     
-     my ($class,$control) = @_;
-     
-     my $self = {
-     	Data => undef,
-     	IdToName => undef,
-     	Control => $control # parent ProgramControl (same as in Display.pl)
-	 };
-     
-     bless($self,$class);
-     return $self;
-}
-
-sub PrintSummaryText {
-	my ($self,$dir) = @_;
-}
-
-# For specifics on hitdata, see HitData in Parser (above)
-sub HitRoutine {
-	my ($self,$hitdata) = @_;
-}
-
-# increment the Data hashes
-sub AddData {
-	my ($self,$id,$name) = @_;
-
-	if (not defined $self->{Data}{$id}) {
-		$self->{Data}{$id} = 1;
-	}
-	else {
-		$self->{Data}{$id} += 1;
-	}
-	$self->{IdToName}{$id} = $name;
-}
-
-# Save internally the values and structures obtained.
-sub SaveRoutine {
-	my ($self,$output_directory,$parser_name) = @_;
-}
-
 
 =head1 NAME
 
@@ -427,42 +469,6 @@ sub PrintFasta {
   	close FASTAFILE;
 }
 
-sub SaveRoutine {
-	my ($self,$output_directory,$parser_name) = @_;
-	$self->StatsFile();
-}
-
-sub StatsFile {
-	my ($self,$parser_name) = @_;
-	
-	chdir($self->{OutputDirectory});
-	open(STATSFILE, '>>' .  "$parser_name HitTotals.txt");
-	
-	my %hitnames = reverse %{$self->{IdToName}};
-	my %hit2ids = ();
-	
-	##this probably can be done in one-liner
-	for my $hitname(keys(%hitnames)){
-		for my $key(keys(%{$self->{Data}})) {
-			if ($self->{IdToName}{$key} eq $hitname) {
-				if (defined $hit2ids{$hitname}) {
-					$hit2ids{$hitname} += $self->{Data}{$key};
-				}
-				else {
-					$hit2ids{$hitname} = $self->{Data}{$key};
-				}
-			}
-		}
-	}
-	
-	for my $hitname(keys(%hit2ids)) {
-		print STATSFILE $hitname . ": " . $hit2ids{$hitname} . "\n";	
-	}
-	
-	close STATSFILE;
-}
-
-
 package FlagItems;
 use base ("TextPrinter");
 
@@ -513,10 +519,6 @@ sub HitRoutine {
 			  last;
 		  }
       }
-}
-
-sub SaveRoutine {
-	my ($self,$output_dir,$parser_name) = @_;
 }
 
 package TaxonomyTextPrinter;
@@ -575,7 +577,8 @@ sub PrintFound {
 
 sub SaveRoutine {
 	my ($self,$output_directory,$parser_name) = @_;
-	$self->SUPER::SaveRoutine($output_directory,$parser_name);
+	#$self->SUPER::SaveRoutine($output_directory,$parser_name);
+	$self->{Taxonomy}->GetTrees();
 	$self->{Taxonomy}->SaveRoutine($output_directory,$parser_name);
 	$self->{Taxonomy}->PrintSummaryText($output_directory,$parser_name);
 }
@@ -675,7 +678,7 @@ sub GetTrees {
 		$taxonomies{$ancestor} = \@species;
 	}
 	
-	my @trees = ();
+	$self->{Trees} = ();
 	for my $ancestor(keys(%taxonomies)) {
 		my $tree;
 		for my $id(@{$taxonomies{$ancestor}}) {
@@ -694,25 +697,26 @@ sub GetTrees {
 			};
 		}
 		if (defined $tree and $tree->number_nodes > 0) {
-			push(@trees,$tree);
+			push(@{$self->{Trees}},$tree);
 		}
 	}
-	return \@trees;
 }
 
 sub SaveRoutine {
 	my ($self,$output_directory,$parser_name) = @_;
+	if (not defined $self->{Trees}) {
+		$self->GetTrees();
+	}
 	chdir($output_directory);
-	my $trees = $self->GetTrees();
-	$self->SaveTrees($trees,$parser_name);
+	$self->SaveTrees($parser_name);
 }
 
 # This routine will be moved to TaxonomyData?
 sub SaveTrees {
-	my ($self,$trees,$parser_name) = @_;
-	for my $tree (@$trees) {
+	my ($self,$parser_name) = @_;
+	for my $tree (@{$self->{Trees}}) {
 		my $title = $parser_name . " " . $tree->get_root_node()->node_name;
-		$tree->add_tag_value("Title",$title);
+
 		my $temp_file = $title . "_temp.xml";
 		open(my $temp_handle, ">>" . $temp_file);
 		my $temp_out = new Bio::TreeIO(-fh => $temp_handle, -format => 'phyloxml');
@@ -731,6 +735,10 @@ sub SaveTrees {
 		}
 		open(my $handle, ">>" . $title . ".xml");
 		my $out = new Bio::TreeIO(-fh => $handle, -format => 'phyloxml');
+		
+		$in_tree->remove_all_tags();
+		$in_tree->add_tag_value("Title",$title);
+		
 		$out->write_tree($in_tree);
 		unlink($temp_file);
 	}
@@ -751,10 +759,11 @@ sub PrintSummaryText {
 		}
 		return $depth;
 	}
+	if (not defined $self->{Trees}) {
+		$self->GetTrees();
+	}
 	
-	my $trees = $self->GetTrees();
-	
-	for my $tree (@$trees) {
+	for my $tree (@{$self->{Trees}}) {
 		my $root = $tree->get_root_node;
 		open(TREE,'>>' . $parser_name . " " . $root->node_name . '.txt');
 		for my $node($tree->get_nodes) {
@@ -1229,7 +1238,6 @@ sub GetNodesLevel {
 
 sub SaveTreePhylo {
 	my ($self,$tree,$data,$title,$file_path) = @_;
-	
 	$tree->remove_all_tags();
 	$tree->add_tag_value("Title",$title);
 	
@@ -1246,7 +1254,6 @@ sub SaveTreePhylo {
 		my $value = $data->{$node->id};
 		$out->add_phyloXML_annotation(-obj=>$node,-xml=>"<value>$value</value>");
 	}
-	
 	$out->write_tree($tree);
 }
 
@@ -1300,7 +1307,6 @@ sub PrintSummaryText {
 		next unless AboveRank($node,$rank) == 0 and $rank ne "";
 		my $space = "";
 		my $depth = GetDepth($node,$rank);
-		# print $self->GetName($node) . " " . $self->GetRank($node) . " " . $depth . "\n";
 		for (my $i=0; $i<$depth; $i++) {
 			$space = $space . "  ";
 		}
