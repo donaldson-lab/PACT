@@ -2333,8 +2333,8 @@ sub DeleteDialog {
 
 package Display;
 use Cwd;
-#use Cava::Packager;
-#Cava::Packager::SetResourcePath('c:/Users/virushunter1/Desktop/PACT/Resources');
+use Cava::Packager;
+Cava::Packager::SetResourcePath('c:/Users/virushunter1/Desktop/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);

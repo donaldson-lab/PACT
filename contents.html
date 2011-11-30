@@ -27,20 +27,25 @@
 </li>
 <li> Output. You must specify an output folder where the results of the parsing will be placed.  Every parsing, regardless of whether the text file option is checked,
 will produce a folder called "No Hits" and a summary text file.  The No Hits folder will contain a FASTA file with every hit that did not produce an alignment in the
-BLAST output file.  The summary text file contains all highest-scoring hits for each hit sequence, followed by the total number discovered. If the user has defined a taxonomy, classification, or flag files option, the results of those searches will also appear in the output folder.
+BLAST output file.  The summary text file contains all highest-scoring hits for each hit sequence, followed by the total number of queries that produced the hit. If the user has defined a taxonomy, classification, or flag files option, the results of those searches will also appear in the output folder.
 <br>
 If the text files option is checked, PACT will create a folder for each hit containing a FASTA file with the sequences that produced the hit alignment and a text file with information on the hit. If this choice is selected in conjunction with the NCBI taxonomy option, the folders will be nested in a tree structure based on the taxonomy.
+<br>
+If the "Add to Database" option is checked, PACT will save the results to a SQLite database in your PACT folder. The advantage of saving results to a database is that you can combine different results into one and select individual hits when <a href="#Database">viewing a table.</a>
 </li> 
 </ul>
 <br>Queuing. You can place several parsing jobs on a queue to be executed all at one time. To add a job to the queue, just press the "add" button while making sure the mandatory fields are filled. To edit a parsing job on the queue, you must make sure that job is highlighted in the queue box. </p>
     <a name="Database">
     <h3>Viewing Database Results</h3>
+    <p>Go to "View->Table." All available tables will appear in the "Result Tables" box. After adding each table you want to combine, you can choose the parameters by which to filter the resulting table.  Only the hits with bit scores above and e-value below the specified bit score and e-value will appear in the resulting table. After the tables are combined (which may be slow, depending on the size of the input tables), the resulting table will appear in a new viewing panel. Each unique hit, along with the total number of matching queries from all combined tables, will appear on the left side.  By clicking on a hit, you can view full statistics of each query.</p>
+    <br>
+    <p>To create a FASTA file of a particular hit, double-click on the hit and follow the save instructions.</p>
     <a name="Taxonomies">
     <h3>Viewing Taxonomy Results</h3>
-    <p>The summary text files produced from the taxonomy results of a parsing can also be reproduced, if the taxonomy xml file was kept. To reproduce the summary file, go to "View->Tree." Click on "Browse," and then find your taxonomy xml file. A list of nodes in the taxonomy tree structure will appear. If you choose one of these nodes, only the data from this node's child nodes will appear. You can use choose to display only a certain taxonomy level, e.g. "species", or "phylum." Click on the drop-down list under "Select Level" to do this. If multiple taxonomies are added to the viewing list (located on the far right),
-    the trees and each node's value will be combined into one tree. To edit </p>
+    <p>The summary text files produced from the taxonomy results of a parsing can also be reproduced, if the taxonomy xml file was kept. To reproduce the summary file, go to "View->Tree." Click on "Browse," and then find your taxonomy xml file. A list of nodes in the taxonomy tree structure will appear. If you choose one of these nodes, only the data from this node's child nodes will appear in the text file. You can use choose to display only a certain taxonomy level, e.g. "species", or "phylum." Click on the drop-down list under "Select Level" to do this. If multiple taxonomies are added to the viewing list (located on the far right),
+    the trees and each node's value will be combined into one tree. To edit preferences for taxonomy that are already queued, you must click on the taxonomy in the "Taxonomies to View" box.</p>
     <a name="PieCharts">
     <h3>Viewing Pie Charts</h3>
-    <p>PACT allows you to view pie charts generated from the xml files produced from the results of parsings with classification and/or taxonomy input.</p>
+    <p>PACT allows you to view pie charts generated from the xml files produced from the results of parsings with classification and/or taxonomy input. </p>
   </body>
 </html>
