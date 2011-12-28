@@ -89,10 +89,12 @@ sub new {
      $self->{OutputDirectory} = $dir;
      $self->{In} = undef;
      $self->{SequenceMemory} = undef;
+     $self->{NumSeqs} = 0;
+     $self->{NoHits} = undef; # Directory where No-Hits FASTA will be located
+     $self->{NoHitIds} = (); # Hash of Sequence id's that did not match
      $self->{Label} = $label;
      $self->{DoneParsing} = 0;
-     $self->{NumSeqs} = 0;
-	 $self->{Processes} = ();
+     $self->{Processes} = ();
 	 
      bless($self,$class);
      return $self;
@@ -114,13 +116,15 @@ sub SetSequenceFile {
 	return 0;
 }
 
+## Change to find the count of query sequences
 sub SetSequences {
 	my ($self) = @_;
 	my $inFasta = Bio::SeqIO->new(-file => $self->{SequenceFile} , '-format' => 'Fasta');
+	my $count = 0;
 	while ( my $seq = $inFasta->next_seq) {
-    	$self->{SequenceMemory}{$seq->id} = $seq->seq;
+		$count++;
 	}
-	$self->{NumSeqs} = keys(%{$self->{SequenceMemory}});
+	$self->{NumSeqs} = $count;
 }
 
 sub AddProcess {
@@ -136,9 +140,11 @@ sub HitName {
     }
     else {
     	my @refined = split(/,/,$description);
-    	return $refined[0]; ## This is a crude way of filtering the name.
+    	return $refined[0]; ## This is a crude way of filtering the name. Will be replaced by another (user-defined?) method.
     }
 }
+
+## one problem here is the consistency of data types across databases. This needs to be fixed
 
 sub HitData {
 	my ($self,$result,$hit,$hsp) = @_;
@@ -146,7 +152,7 @@ sub HitData {
 	my $hitname = $self->HitName($hit->description);
 	my $query = $result->query_name;
 	my @ids = split(/\|/,$hit->name);
-	my $gi = $ids[1];
+	my $gi = $ids[1]; #gi is specific to GenBank. This needs to be changed.
 	my $rank = 1;
     my $descr = $hit->description;
     my $qlength = $result->query_length;
@@ -158,9 +164,7 @@ sub HitData {
     my $startq = $hit->start('query');
     my $endq =  $hit->end('query');
     my $hlength = $hit->length;
-	
-	
-	my $sequence = $self->{SequenceMemory}{$result->query_name};
+	my $sequence = $hsp->query_string;
 	
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
@@ -172,23 +176,20 @@ sub NoHitsFolder {
 	mkdir($self->{NoHits});
 }
 
-sub NoHits {
-	my ($self,$query_name) = @_;
-	
-	if (not defined $self->{NoHits}) {
-		return 0;
-	}
-	
-	my $sequence = $self->{SequenceMemory}{$query_name};
-	
+sub WriteNoHits {
+	my ($self) = @_;
 	chdir($self->{NoHits});
 	open(NOHITSFASTA, '>>' . "NoHits.fasta");
-	
-	print NOHITSFASTA ">" . $query_name . "\n";
-  	print NOHITSFASTA $sequence . "\n";
-  	print NOHITSFASTA "\n";
-  	
-  	close NOHITSFASTA;
+	my $inFasta = Bio::SeqIO->new(-file => $self->{SequenceFile} , '-format' => 'Fasta');
+	while ( my $seq = $inFasta->next_seq) {
+		my $id = $seq->id;
+    	if (exists $self->{NoHitIds}{$id}) {
+    		print NOHITSFASTA ">" . $id . "\n";
+  			print NOHITSFASTA $seq->seq . "\n";
+  			print NOHITSFASTA "\n";
+    	}
+	}
+	close NOHITSFASTA;
 }
 
 sub HitRoutine {
@@ -209,7 +210,8 @@ sub Parse {
 		$count++;
 		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
 		$progress_dialog->Update($progress_ratio);
-
+		
+		my $rank = 0;
 		if (my $firsthit = $result->next_hit) {
 			if (my $firsthsp = $firsthit->next_hsp) {
 				
@@ -233,10 +235,12 @@ sub Parse {
 			}
 		}
 		else {
-			$self->NoHits($result->query_name);
+			$self->{NoHitIds}{$result->query_name} = 1;
 		}
 		
 	}
+	
+	$self->WriteNoHits();
 	
 	$progress_dialog->Update(99,"Saving ...");
 	for my $process(@{$self->{Processes}}) {
