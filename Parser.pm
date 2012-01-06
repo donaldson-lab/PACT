@@ -15,13 +15,12 @@ This is a base class for all objects taking a Parser query result one at a time 
 package Process;
 
 sub new {
-     
      my ($class,$control) = @_;
      
      my $self = {
      	Data => undef,
      	IdToName => undef,
-     	Control => $control # parent ProgramControl (same as in Display.pl)
+     	Control => $control # parent IOHandler (same as in Display.pl)
 	 };
      
      bless($self,$class);
@@ -37,7 +36,6 @@ sub HitRoutine {
 	my ($self,$hitdata) = @_;
 }
 
-# increment the Data hashes
 sub AddData {
 	my ($self,$id,$name) = @_;
 
@@ -101,12 +99,14 @@ sub new {
 
 }
 
+# called before the parsing is done. See RunParsers in Display.pl
 sub prepare {
 	my ($self) = @_;
 	$self->NoHitsFolder();
 	$self->SetSequences();
 }
 
+# Sets the class member "SequenceFile" to the FASTA file specified. See GenerateParser in Display.pl
 sub SetSequenceFile {
 	my ($self,$fasta_name) = @_;
 	if (-e $fasta_name and $fasta_name ne "") {
@@ -127,11 +127,14 @@ sub SetSequences {
 	$self->{NumSeqs} = $count;
 }
 
+# void routine to add a process object to Processes array 
 sub AddProcess {
 	my ($self,$process) = @_;
 	push(@{$self->{Processes}},$process);
 }
 
+# routine to convert the hit description from the BLAST output file to a shorter name to be used
+# in summaries, file names, etc. 
 sub HitName {
 	my ($self,$description) = @_;
 	
@@ -145,7 +148,6 @@ sub HitName {
 }
 
 ## one problem here is the consistency of data types across databases. This needs to be fixed
-
 sub HitData {
 	my ($self,$result,$hit,$hsp) = @_;
 	
@@ -169,6 +171,7 @@ sub HitData {
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
 
+# creates the folder called "NoHits."  See below. 
 sub NoHitsFolder {
 	my ($self) = @_;
 	chdir($self->{OutputDirectory});
@@ -176,6 +179,7 @@ sub NoHitsFolder {
 	mkdir($self->{NoHits});
 }
 
+# Save all the queries that did not produce hit alignments in a fasta file in a folder called "NoHits."
 sub WriteNoHits {
 	my ($self) = @_;
 	chdir($self->{NoHits});
@@ -192,12 +196,17 @@ sub WriteNoHits {
 	close NOHITSFASTA;
 }
 
+# The Parser implementation of Process HitRoutine. Just increments the count for the hit. See AddData.
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
 	my $hitname = $hitdata->[3];
 	my $gi = $hitdata->[4];
 	$self->AddData($gi,$hitname);
 }
+
+# Parsing the sequence similarity output file. Just a loop.
+# Args: wxProgressDialog. Perhaps not ideal, but the ProgressDialog needs updating
+# during the parsing. 
 
 sub Parse {
 	
@@ -207,6 +216,8 @@ sub Parse {
 	push(@{$self->{Processes}},$self);
 	
 	while( my $result = $self->{In}->next_result) {
+		
+		#update the ProgressDialog.
 		$count++;
 		my $progress_ratio = int(($count/$self->{NumSeqs})*98);
 		$progress_dialog->Update($progress_ratio);
@@ -235,11 +246,13 @@ sub Parse {
 			}
 		}
 		else {
+			# the case when the query did not produce a hit alignment
 			$self->{NoHitIds}{$result->query_name} = 1;
 		}
 		
 	}
 	
+	# print the no hits FASTA file in the "No Hits" folder
 	$self->WriteNoHits();
 	
 	$progress_dialog->Update(99,"Saving ...");
@@ -249,11 +262,14 @@ sub Parse {
 	$progress_dialog->Update(100);
 }
 
+# Implementation of Process SaveRoutine
 sub SaveRoutine {
 	my ($self,$dir,$name) = @_;
 	$self->PrintSummaryText($dir);
 }
 
+# The summary text file that prints the (short) name of each hit, followed by a colon,
+# then the number found for that hit.
 sub PrintSummaryText {
 	my ($self,$dir) = @_;
 	
@@ -263,7 +279,8 @@ sub PrintSummaryText {
 	my %hitnames = reverse %{$self->{IdToName}};
 	my %hit2ids = ();
 	
-	##this probably can be done in one-liner
+	##this probably can be done in one-liner? Basically, collects the number found for
+	# each short name.
 	for my $hitname(keys(%hitnames)){
 		for my $key(keys(%{$self->{Data}})) {
 			if ($self->{IdToName}{$key} eq $hitname) {
@@ -398,6 +415,7 @@ sub new {
      return $self;
 }
 
+# Temporary file that prints the name of the hit and the number found. 
 sub PrintHitFileHeader {
 	my ($self,$dir,$hitname,$num_queries) = @_;
 	
@@ -405,10 +423,10 @@ sub PrintHitFileHeader {
 	open(HITFILE, '>>' . $self->{Control}->ReadyForFile($hitname) . ".txt");
 	print HITFILE $hitname . "\n",
 			"Total Number of Queries per Hit: " . $num_queries . "\n" . "\n";
-	
 	close HITFILE;
 }
 
+# Implementation of Process HitRoutine. 
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
 	
@@ -425,10 +443,11 @@ sub HitRoutine {
 	my $endq = $hitdata->[13];
 	my $hitlength = $hitdata->[14];
 	
-	$self->AddData($gi,$hitname);
+	$self->AddData($gi,$hitname); # is there double-counting here?
 	$self->PrintHit($self->{OutputDirectory},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 }
 
+# routine that calls the hit info and FASTA printing 
 sub PrintHit {
 	my ($self,$parent,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence) = @_;
 	my $dir = $parent . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
@@ -439,6 +458,7 @@ sub PrintHit {
 	chdir($self->{OutputDirectory});
 }
 
+# Prints the information about the hit to the hit info text file
 sub PrintHitFile {
 	my ($self,$dir,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq) = @_;
 	
@@ -460,6 +480,7 @@ sub PrintHitFile {
 	close HITFILE;
 }
 
+# Print the query sequence to the associated FASTA file
 sub PrintFasta {
 	my ($self,$dir,$hitname,$query_name,$sequence) = @_;
 	
@@ -473,6 +494,16 @@ sub PrintFasta {
   	close FASTAFILE;
 }
 
+=head1 NAME
+
+FlagItems
+
+=head1 DESCRIPTION
+
+Class for Reading the flag flag, keeping the flag items in memory, and determine whetherm 
+through parsing, a hit is to be flagged.
+=cut
+
 package FlagItems;
 use base ("TextPrinter");
 
@@ -483,6 +514,7 @@ sub new {
 	return $self;
 }
 
+# read and store the contents of the flag file
 sub Generate {
 	my ($self,$flag_file) = @_;
 	
@@ -500,6 +532,7 @@ sub Generate {
     }
 }
 
+# implementation of Process HitRoutine
 sub HitRoutine {
 	my ($self,$hitdata) = @_;
 	
@@ -517,8 +550,10 @@ sub HitRoutine {
 	my $hitname = $hitdata->[3];
 	
 	chdir($self->{OutputDirectory});
+	# determine if any part of any flag item matches that of the hit description.
 	for my $flag (keys(%{$self->{Data}})) {
 		  if ($descr =~ /$flag/ig) {
+		  	  # if so, print the hit info and FASTA in a hit folder in the flagged items folder!
 			  $self->PrintHit($self->{FlagDir},$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence);
 			  last;
 		  }
@@ -907,7 +942,7 @@ sub PrintSummaryText {
 	}	
 }
 
-# to be moved to ClassificationXML
+# to be moved to ClassificationXML, eventually
 sub SaveXML {
 	my ($self,$output_directory,$parser_name) = @_;
 	chdir($output_directory);
@@ -953,8 +988,6 @@ sub MakeTables {
 	$self->{QueryInfo} = $self->{TableName} . "_QueryInfo";
 	$self->{AllHits} = $self->{TableName} . "_AllHits";
 	$self->{HitInfo} = $self->{TableName} . "_HitInfo";
-	
-	chdir($self->{Control}->{Results});
 		 
 	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{QueryInfo});
 	$self->{Control}->{Connection}->do("DROP TABLE IF EXISTS " . $self->{AllHits});
@@ -1103,6 +1136,7 @@ sub AddFile {
 	$self->{RootName} = $self->GetName($self->{Tree}->get_root_node());
 }
 
+# get the names and values (in a special hash) of all items of a particular rank in a subtree specified by the sub_node_name
 sub PieDataNode {
 	my ($self,$sub_node_name,$rank) = @_;
 	my $sub_node = $self->FindNode($sub_node_name);
@@ -1318,6 +1352,14 @@ sub PrintSummaryText {
 	}
 	close TREE;
 }
+
+=head1 NAME
+
+TreeCombiner
+
+=head1 DESCRIPTION
+
+=cut
 
 package TreeCombiner;
 

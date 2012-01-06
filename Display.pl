@@ -9,7 +9,54 @@ use Cwd;
 my $green = Wx::Colour->new("SEA GREEN");
 my $blue = Wx::Colour->new("SKY BLUE");
 
-package ProgramControl;
+=head1 NAME
+
+ErrorMessage
+
+=head1 SYNOPSIS
+
+my $error_message = ErrorMessage->new($panel,"PACT could not connect to NCBI");
+
+=head1 DESCRIPTION
+
+Pops up when the user choose an action that fails (ie, the computer is not connected to the internet to check
+taxonomic information).
+Gives a warning and description of what happened.
+
+=cut
+
+package ErrorMessage;
+use Wx qw /:everything/;
+use Wx::Event qw(EVT_BUTTON);
+use base 'Wx::MessageDialog';
+
+sub new {
+	my ($class,$parent,$dialog) = @_;
+	my $self = $class->SUPER::new($parent,$dialog,"Error",wxSTAY_ON_TOP|wxOK|wxCENTRE,wxDefaultPosition);
+	$self->CenterOnParent(wxBOTH);
+	$self->SetBackgroundColour($green);
+	bless ($self,$class);
+	return $self;
+}
+
+=head1 NAME
+
+IOHandler
+
+=head1 SYNOPSIS
+
+my $main_control = IOHandler->new();
+
+=head1 DESCRIPTION
+
+Used to access program files, folders. Basically a wrapper object that can be passed to processes
+during parsing.
+wxWidgets might already have classes and functions to
+do this?
+
+=cut
+
+package IOHandler;
 use DBI;
 use Cwd;
 use LWP::Simple;
@@ -24,15 +71,17 @@ sub new {
 	my $class = shift;
 	my $self = {};
 	bless ($self,$class);
+	# Initialize program files and folders
 	$self->GetPathSeparator();
 	$self->GetCurrentDirectory();
 	$self->MakeResultsFolder();
-	$self->CreateDatabase();
 	$self->MakeColorPrefsFolder();
 	$self->SetTaxDump();
 	return $self;
 }
 
+# The directory of the program. To be used as the parent directory to store all files and
+# folders containing user data, NCBI taxonomy files, table results, etc.
 sub GetCurrentDirectory {
 	my ($self) = @_;
 	
@@ -46,45 +95,61 @@ sub GetCurrentDirectory {
 	}
 }
 
+# Folder that stores NCBI taxonomy look-up files.
 sub SetTaxDump {
 	my ($self) = @_;
 	$self->{TaxDump} = $self->{CurrentDirectory} . $self->{PathSeparator} . "taxdump";
 	mkdir($self->{TaxDump});
-	chdir($self->{TaxDump});
-	$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
-	$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
 }
 
+# Check to see if NCBI taxonomies files are stored. If not, 
+sub CheckTaxDump {
+	my ($self) = @_;
+	chdir($self->{TaxDump});
+	if (-e "nodes.dmp" and -e "names.dmp") {
+		$self->{NodesFile} = $self->{TaxDump} . $self->{PathSeparator} . "nodes.dmp";
+		$self->{NamesFile} = $self->{TaxDump} . $self->{PathSeparator} . "names.dmp";
+	}
+	else {
+		return 0;	
+	}
+	return 1;
+}
+
+# Downloads NCBI taxonomy files from the given url.
+# returns 0 if NCBI taxdump file could not be retrieved.
 sub DownloadNCBITaxonomies {
 	my $self = shift;
 	chdir($self->{TaxDump});
-	## errors: what if no connection? File does not exist?
 	
 	my $url = "ftp://ftp.ncbi.nih.gov/pub/taxonomy/";
 	my $file = "taxdump.tar.gz";
-	getstore("$url/$file",$file);
+	getstore("$url/$file",$file) or return 0;
 	my $tar = Archive::Tar->new;
 	$tar->read($file);
 	$tar->extract();
 	unlink($file);
 }
 
+## Results Folder is where table result db files are stored
 sub MakeResultsFolder {
 	my $self = shift;
 	$self->{Results} = $self->{CurrentDirectory} . $self->{PathSeparator} . "Results";
 	mkdir $self->{Results};
 }
 
+## Removes the table from the database. Deletes the key,label in the TableNames hash.  
 sub DeleteResult {
 	my ($self,$key) = @_;
 	chdir($self->{Results});
-	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open $!";
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or return 0;
 	if (defined $TABLENAMES{$key}) {
 		$self->RemoveResultTables($key);
 		delete $TABLENAMES{$key};
 	}
 }
 
+## Adds the key and label to a FileBox. See FileBox
 sub AddResultsBox {
 	my ($self,$box) = @_;
 	chdir($self->{Results});
@@ -94,22 +159,25 @@ sub AddResultsBox {
 	}
 }
 
+# Generates a key for the table, then stores the key and label in a hash (see below).
 sub AddTableName {
 	my ($self,$label) = @_;
 	chdir($self->{Results});
-	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or return 0;
 	my $key = $self->GenerateTableKey();
 	$TABLENAMES{$key} = $label;
 	return $key;
 }
 
+# returns a hash of table names (table key to English name)
 sub GetTableNames {
 	my ($self) = @_;
 	chdir($self->{Results});
-	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or return 0;
 	return \%TABLENAMES;
 }
 
+# Creates a key for naming the result tables. The key is 3 random letters plus the date of creation.  
 sub GenerateTableKey {
 	my ($self) = @_;
 	my @alpha = ("a".."z");
@@ -125,20 +193,25 @@ sub GenerateTableKey {
 	return $name_key;
 }
 
+# The folder for storing db hash files containing a user-defined color code for pie charts. 
 sub MakeColorPrefsFolder {
 	my $self = shift;
 	$self->{ColorPrefs} = $self->{CurrentDirectory} . $self->{PathSeparator} . "ColorPrefs";
 	mkdir $self->{ColorPrefs};
 }
 
-sub CreateDatabase {
+# Using DBI to connect to SQLite DB file.
+# Returns integer code. -1 for failed SQL connection, 0 for failed DB hash connection. 
+sub ConnectDatabase {
 	my ($self) = @_;
 	chdir($self->{Results});
-	#$self->{Connection} = DBI->connect("DBI:mysql:database=test;host=127.0.0.1","","") or die("Cannot open");
-	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or die("Could not open database");
-	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or die "Cannot open TableNames: $!";
+	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or return -1; 
+	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or return 0;
+	return 1;
 }
 
+# Called when user deletes a result table through the "Manage Results" panel. Vacuum clears the memory
+# taken up by the db file.
 sub RemoveResultTables {
 	my ($self,$key) = @_;
 	$self->{Connection}->do("DROP TABLE $key" . "_AllHits");
@@ -147,6 +220,7 @@ sub RemoveResultTables {
 	$self->{Connection}->do("VACUUM");
 }
 
+# Gets the path separator for different operating systems.
 sub GetPathSeparator {
 	my ($self) = @_;
 	$self->{OS} = $^O;
@@ -181,23 +255,48 @@ sub ReadyForFile {
     return $name;
 }
 
-my $control = ProgramControl->new();
+my $control = IOHandler->new(); # First and only instantiation of IOHandler. Should be singleton?
+
+=head1 NAME
+
+OkDialog
+
+=head1 SYNOPSIS
+
+my $ok_dialog = OkDialog->new($panel,"Title","Message");
+
+=head1 DESCRIPTION
+
+Appears when there is a choice to proceed. 
+
+=cut
 
 package OkDialog;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
 use base 'Wx::MessageDialog';
 
-# Takes a parent (frame base class), the function and its parameters, and a title. 
+# Takes a parent (frame base class),title string, and message string. 
 sub new {
 	my ($class,$parent,$title,$dialog) = @_;
-	my $self = $class->SUPER::new($parent,$dialog,"",wxSTAY_ON_TOP|wxOK|wxCANCEL|wxCENTRE,wxDefaultPosition);
+	my $self = $class->SUPER::new($parent,$dialog,$title,wxSTAY_ON_TOP|wxOK|wxCANCEL|wxCENTRE,wxDefaultPosition);
 	$self->CenterOnParent(wxBOTH);
 	$self->SetBackgroundColour($green);
 	bless ($self,$class);
 	return $self;
 }
 
+=head1 NAME
+
+FileBox
+
+=head1 DESCRIPTION
+
+This class enables file paths to be stored and displayed in a wxListBox, so that a shortened
+name is displayed, but not the actual path.  
+Ideally, this would probably be inherited from the actual wxListBox.
+
+=cut
 
 package FileBox;
 use Wx qw /:everything/;
@@ -212,28 +311,43 @@ sub new {
 	return $self;
 }
 
+# add the short name to the display ListBox, then add the path to the array
 sub AddFile {
 	my ($self,$file_path,$file_label) = @_;
 	$self->{ListBox}->Insert($file_label,$self->{ListBox}->GetCount);
 	push(@{$self->{FileArray}},$file_path);
 }
 
+# returns the path name of the selected file label
 sub GetFile {
 	my $self = shift;
 	return $self->{FileArray}[$self->{ListBox}->GetSelection];
 }
 
+# returns all file paths
 sub GetAllFiles {
 	my $self = shift;
 	return $self->{FileArray};
 }
 
+# removes both the displayed file label and the file path from memory
 sub DeleteFile {
 	my $self = shift;
 	my $selection = $self->{ListBox}->GetSelection;
 	splice(@{$self->{FileArray}},$selection,1);
 	$self->{ListBox}->Delete($selection);
 }
+
+=head1 NAME
+
+ClassificationTypePanel
+
+=head1 DESCRIPTION
+Provides a template for a panel to view the results of a classification search (ie, through pie charts).
+Provides uniformity in appearance in all such panels. There is a ListBox on the left for results to
+choose from, a middle section for selecting attributes to narrow the data set, and a ListBox on the right 
+for showing the results to be combined.  
+=cut
 
 package ClassificationTypePanel;
 
@@ -252,7 +366,7 @@ sub new {
 	
 	my $self = $class->SUPER::new($parent,-1,wxDefaultPosition,wxDefaultSize,wxSUNKEN_BORDER);
 	$self->{Label} = $class_label;
-	$self->{DataReader} = undef;
+	$self->{DataReader} = undef; # Reads and interprets results. TaxonomyXML, for example
 	$self->{TitleBox} = undef;
 	$self->{ClassifierBox} = undef;
 	
@@ -261,6 +375,7 @@ sub new {
 	return $self;
 }
 
+# set up the panel display. Implementation specific
 sub Display {
 	my ($self,$class_file) = @_;
 	$self->SetBackgroundColour($blue);
@@ -294,6 +409,7 @@ sub Display {
 	$self->Show;
 }
 
+# fill the classifier attribute ListBox  
 sub FillClassifiers {
 	my ($self,$listbox,$data_reader) = @_;
 	my $classifiers = $data_reader->GetClassifiers();
@@ -306,12 +422,20 @@ sub FillClassifiers {
 	$self->Refresh;
 }
 
+# 
 sub CopyData {
 	my ($self,$panel) = @_;
 	$self->{DataReader} = $panel->{DataReader};
 	$self->{TitleBox}->SetValue($panel->{TitleBox}->GetValue);
 	$self->{ClassifierBox}->SetSelection($panel->{ClassifierBox}->GetSelection);
 }
+
+=head1 NAME
+
+TaxonomyTypePanel
+
+=head1 DESCRIPTION
+=cut
 
 package TaxonomyTypePanel;
 
@@ -1154,7 +1278,7 @@ sub OnSize {
 sub CompareTables {
 	my ($self,$table_names,$bit,$evalue) = @_;
 	
-	# This could probably be done much better
+	# This could probably be done much better. Also, the SQL operations should be moved to IOHandler.
 	
 	$control->{Connection}->do("DROP TABLE IF EXISTS t_1");
 	$control->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
@@ -2128,9 +2252,18 @@ sub GenerateParser {
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
 	if ($page->{TableCheck}->GetValue==1) {
-			my $table_key = $control->AddTableName($page->{ParserNameTextCtrl}->GetValue);
-			my $table = SendTable->new($control,$table_key);
-			$parser->AddProcess($table);
+			my $error = $control->ConnectDatabase();
+			if ($error == 1) {
+				my $table_key = $control->AddTableName($page->{ParserNameTextCtrl}->GetValue);
+				my $table = SendTable->new($control,$table_key);
+				$parser->AddProcess($table);
+			} 
+			elsif ($error == 0) {
+				my $error_message = ErrorMessage->new($self,"");
+			}
+			elsif ($error == -1) {
+				my $error_message = ErrorMessage->new($self,"");
+			}
 	}
 
 	my $taxonomy;
@@ -2141,7 +2274,17 @@ sub GenerateParser {
 			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$control);
 		}
 		else {
-			$taxonomy = FlatFileTaxonomy->new($control->{NodesFile},$control->{NamesFile},\@ranks,\@roots,$control);
+			## Check first to see if NCBI taxonomies are there in the taxdump folder
+			if ($control->CheckTaxDump()==1) {
+				$taxonomy = FlatFileTaxonomy->new($control->{NodesFile},$control->{NamesFile},\@ranks,\@roots,$control);
+			}
+			else {
+				## if not, ask to download them.
+				my $download_dialog = OkDialog->new($self->GetParent(),"Taxonomy files not found","Download NCBI taxonomy files?");
+				if ($download_dialog->ShowModal == wxID_OK) {
+					$control->DownloadNCBITaxonomies();
+				}
+			}
 		}
 	}
 	
@@ -2222,6 +2365,15 @@ sub Run {
 	else {
 	}
 }
+
+=head1 NAME
+
+ResultsManager
+
+=head1 DESCRIPTION
+wxPanel 
+
+=cut
 
 package ResultsManager;
 use Wx qw /:everything/;
@@ -2331,10 +2483,19 @@ sub DeleteDialog {
 	$delete_dialog->Destroy;
 }
 
+=head1 NAME
+
+Display
+
+=head1 DESCRIPTION
+The main GUI class. Has and controls 
+
+=cut
+
 package Display;
 use Cwd;
-use Cava::Packager;
-Cava::Packager::SetResourcePath('c:/Users/virushunter1/Desktop/PACT/Resources');
+#use Cava::Packager;
+#Cava::Packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
