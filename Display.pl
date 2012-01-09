@@ -343,10 +343,8 @@ sub DeleteFile {
 ClassificationTypePanel
 
 =head1 DESCRIPTION
-Provides a template for a panel to view the results of a classification search (ie, through pie charts).
-Provides uniformity in appearance in all such panels. There is a ListBox on the left for results to
-choose from, a middle section for selecting attributes to narrow the data set, and a ListBox on the right 
-for showing the results to be combined.  
+In ClassificationPiePanel (its parent), this is the panel that displays choices of attributes
+by which to select classification data to be displayed (by pie chart, for example).
 =cut
 
 package ClassificationTypePanel;
@@ -435,6 +433,10 @@ sub CopyData {
 TaxonomyTypePanel
 
 =head1 DESCRIPTION
+
+This is the attribute selection panel for TaxonomyPiePanel (similar to ClassificationTypePanel).
+Allows users to select the taxonomy data by root, rank, etc.
+
 =cut
 
 package TaxonomyTypePanel;
@@ -535,6 +537,14 @@ sub FillNodes {
 	}
 }
 
+=head1 NAME
+
+TaxonomyTypePanelTitle
+
+=head1 DESCRIPTION
+Just like TaxonomyTypePanel, but implements a title box (wxTextCtrl).
+=cut
+
 package TaxonomyTypePanelTitle;
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -558,7 +568,16 @@ sub AddTitleBox {
 	$sizer->Add($title_label_sizer,1,wxEXPAND,10);
 }
 
+=head1 NAME
 
+ClassificationPiePanel
+
+=head1 DESCRIPTION
+Provides a template for a panel to view the results of a classification search (ie, through pie charts).
+Provides uniformity in appearance in all such panels. There is a ListBox on the left for results to
+choose from, a middle section for selecting attributes to narrow the data set (see Classification), and a ListBox on the right 
+for showing the results to be combined. This is also a base class for TaxonomyPiePanel. 
+=cut
 
 package ClassificationPiePanel;
 
@@ -1102,6 +1121,19 @@ sub TaxonomyText {
 	$save_dialog->Destroy;
 }
 
+=head1 NAME
+
+QueryTextDisplay
+
+=head1 SYNOPSIS
+
+my $query_display = QueryTextDisplay->new($panel);
+
+=head1 DESCRIPTION
+A wxPanel that displays (via html) the descriptive information of the hit associated
+with the query.
+=cut
+
 package QueryTextDisplay;
 
 use Wx qw /:everything/;
@@ -1280,6 +1312,9 @@ sub CompareTables {
 	
 	# This could probably be done much better. Also, the SQL operations should be moved to IOHandler.
 	
+	# establish connection to database in $control
+	$control->ConnectDatabase();
+	
 	$control->{Connection}->do("DROP TABLE IF EXISTS t_1");
 	$control->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER,ignore_query TEXT,qlength INTEGER,sequence TEXT)");
@@ -1308,7 +1343,8 @@ sub CompareTables {
 	$self->DisplayHits();
 }
 
-my %hmap = ();
+# why exactly is this outside the class scope?
+my %hmap = (); # maps the column, row to the hitname. 
 my $hcol = 0;
 my %hcolstate = (0=>-1,1=>-1);
 
@@ -1338,8 +1374,8 @@ sub DisplayHits {
 	EVT_LIST_COL_CLICK($self,$self->{ResultHitListCtrl},\&OnSortHit);
 } 
 
-my %qmap = ();
-my $qcol = 0;
+my %qmap = (); # maps 
+my $qcol = 0; #
 my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1);
 
 sub DisplayQueries {
@@ -2488,14 +2524,14 @@ sub DeleteDialog {
 Display
 
 =head1 DESCRIPTION
-The main GUI class. Has and controls 
+The main GUI class.
 
 =cut
 
 package Display;
 use Cwd;
-#use Cava::Packager;
-#Cava::Packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
+#use Cava::packager;
+#Cava::packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -2530,7 +2566,10 @@ sub new {
 	return $self;
 }
 
-## Shows the selected panel and hides all others
+### 
+
+
+## Shows the selected panel and hides all others. Display data is maintained.
 sub DisplayPanel {
 	my ($self,$show_panel) = @_;
 	for my $panel(@{$self->{PanelArray}}) {
@@ -2551,6 +2590,7 @@ sub DisplayPanel {
 	$self->Layout;
 } 
 
+## creates the panel for generating and running parsings (See QueuePanel). Otherwise, displays the existing panel.
 sub OnProcessClicked {
 	my ($self,$event) = @_;
 	if (not defined $self->{QueuePanel}) {
@@ -2560,6 +2600,7 @@ sub OnProcessClicked {
 	$self->DisplayPanel($self->{QueuePanel});
 }
 
+## creates the panel for producing taxonomy pie charts if that panel does not exist. Otherwise, displays the existing panel.
 sub InitializeTaxPieMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{TaxPiePanel}) {
@@ -2569,6 +2610,7 @@ sub InitializeTaxPieMenu {
 	$self->DisplayPanel($self->{TaxPiePanel});
 }
 
+## creates the panel for producing classification pie charts if that panel does not exist. Otherwise, displays the existing panel.
 sub InitializeClassPieMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{ClassPiePanel}) {
@@ -2578,6 +2620,7 @@ sub InitializeClassPieMenu {
 	$self->DisplayPanel($self->{ClassPiePanel});
 }
 
+## creates or loads the existing panel for reading TaxonomyXML data from a result and saving in a new format.
 sub InitializeTreeSaveMenu {
 	my($self,$event) = @_;
 	if (not defined $self->{TreePanel}) {
@@ -2587,6 +2630,7 @@ sub InitializeTreeSaveMenu {
 	$self->DisplayPanel($self->{TreePanel});
 }
 
+## creates or loads the existing panel for viewing tree/taxonomy data. 
 sub InitializeTreeViewMenu {
 	my ($self,$event) = @_;
 	if (not defined $self->{TreeViewPanel}) {
@@ -2597,6 +2641,7 @@ sub InitializeTreeViewMenu {
 
 }
 
+## creates or loads the existing panel for choosing results stored on the database table to be view (see below).
 sub InitializeTableViewer {
 	my($self,$event) = @_;
 	if (not defined $self->{TablePanel}) {
@@ -2610,6 +2655,7 @@ sub InitializeTableViewer {
 	EVT_BUTTON($self->{TablePanel}->{GeneratePanel},$self->{TablePanel}->{GenerateButton},sub{$self->DisplayTable()});
 }
 
+## creates the panel for viewing the database tables of the chosen results (from TableMenu).
 sub DisplayTable {
 	my ($self) = @_;
 	if (not defined $self->{TableDisplay}) {
@@ -2627,6 +2673,7 @@ sub DisplayTable {
 	$self->{TableDisplay}->OnSize(0);
 }
 
+# creates or loads existing panel for managing the database tables of results. See ResultManager.
 sub InitializeResultManager {
 	my ($self,$event) = @_;
 	if (not defined $self->{ResultsPanel}) {
@@ -2639,6 +2686,7 @@ sub InitializeResultManager {
 	$self->DisplayPanel($self->{ResultsPanel});
 }
 
+## Called when the "Update NCBI Taxonomy Files" menu item is selected. 
 sub TaxonomyFileUpdater {
 	my ($self,$event) = @_;
 	my $update_dialog = OkDialog->new($self,"Update NCBI Taxonomy Files","New files will be downloaded from: ftp://ftp.ncbi.nih.gov/pub/taxonomy/\nProceed?");
@@ -2648,6 +2696,7 @@ sub TaxonomyFileUpdater {
 	$update_dialog->Destroy;
 }
 
+## displays the contents/help manual in a new window.
 sub ShowContents {
 	my ($self,$event) = @_;
 	my $contents_frame = Wx::Frame->new(undef,-1,"PACT Contents",[-1,-1],[-1,-1]);
@@ -2656,10 +2705,11 @@ sub ShowContents {
 	my $height = $size->GetHeight();
 	my $window = Wx::HtmlWindow->new($contents_frame,-1);
 	$window->SetSize($width,$height);
-	$window->LoadPage(Cava::Packager::GetResource('contents.html')); # $control->{CurrentDirectory} . $control->{PathSeparator} . 
+	$window->LoadPage(Cava::packager::GetResource('contents.html')); # $control->{CurrentDirectory} . $control->{PathSeparator} . 
 	$contents_frame->Show();
 }
 
+## Creates all menu items
 sub TopMenu {
 	my ($self) = @_;
 
