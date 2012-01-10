@@ -255,7 +255,7 @@ sub ReadyForFile {
     return $name;
 }
 
-my $control = IOHandler->new(); # First and only instantiation of IOHandler. Should be singleton?
+my $io_manager = IOHandler->new(); # First and only instantiation of IOHandler. Should be singleton?
 
 =head1 NAME
 
@@ -469,10 +469,10 @@ sub Display {
 	$self->SetBackgroundColour($blue);
 	
 	if ($tax_file =~ /.tre/) {
-		my $names = $control->GetTaxonomyNodeNames($tax_file);
-		my $ranks = $control->GetTaxonomyNodeRanks($tax_file);
-		my $seqids = $control->GetTaxonomyNodeIds($tax_file);
-		my $values = $control->GetTaxonomyNodeValues($tax_file);
+		my $names = $io_manager->GetTaxonomyNodeNames($tax_file);
+		my $ranks = $io_manager->GetTaxonomyNodeRanks($tax_file);
+		my $seqids = $io_manager->GetTaxonomyNodeIds($tax_file);
+		my $values = $io_manager->GetTaxonomyNodeValues($tax_file);
 		$self->{DataReader} = TaxonomyData->new($tax_file,$names,$ranks,$seqids,$values);
 	}
 	elsif ($tax_file ne "") {
@@ -756,7 +756,7 @@ sub LoadFile {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,"Choose Results");
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split - 1];
 		$self->{FileBox}->AddFile($dialog->GetPath,$file_label);
 		$self->{FileBox}->{ListBox}->SetSelection($self->{FileBox}->{ListBox}->GetCount - 1);
@@ -855,7 +855,7 @@ sub GenerateCharts {
 	}
 	
 	if (defined $chart_data->[0]) {
-		PieViewer->new($chart_data->[0],$chart_data->[1],$chart_data->[2],-1,-1,$control);
+		PieViewer->new($chart_data->[0],$chart_data->[1],$chart_data->[2],-1,-1,$io_manager);
 	}
 	else {
 	}
@@ -1008,7 +1008,7 @@ sub LoadFile {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,"Choose Results");
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split - 1];
 	}
 	$self->{TreeFileListBox}->AddFile($dialog->GetPath,$file_label);
@@ -1312,39 +1312,43 @@ sub CompareTables {
 	
 	# This could probably be done much better. Also, the SQL operations should be moved to IOHandler.
 	
-	# establish connection to database in $control
-	$control->ConnectDatabase();
+	# establish connection to database in $io_manager
+	$io_manager->ConnectDatabase();
 	
-	$control->{Connection}->do("DROP TABLE IF EXISTS t_1");
-	$control->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	$io_manager->{Connection}->do("DROP TABLE IF EXISTS t_1");
+	$io_manager->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,ignore_gi INTEGER,description TEXT,hitname TEXT,hlength INTEGER,ignore_query TEXT,qlength INTEGER,sequence TEXT)");
 
+	#print "begin table loop\n"; # simple test of speed
 	for my $table(@$table_names) {
 		my $all_hits = $table . "_AllHits";
 		my $hit_info = $table . "_HitInfo";
 		my $query_info = $table . "_QueryInfo";
-		my $temp = $control->{Connection}->do("INSERT INTO t_1 SELECT * FROM $all_hits INNER JOIN $hit_info ON $hit_info.gi=$all_hits.gi 
+		my $temp = $io_manager->{Connection}->do("INSERT INTO t_1 SELECT * FROM $all_hits INNER JOIN $hit_info ON $hit_info.gi=$all_hits.gi 
 		INNER JOIN $query_info ON $all_hits.query=$query_info.query
 		WHERE $all_hits.bit > $bit AND $all_hits.evalue < $evalue");
 	}
+	#print "end table loop\n";
 	
-	$control->{Connection}->do("DROP TABLE IF EXISTS t");
-	$control->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
+	$io_manager->{Connection}->do("DROP TABLE IF EXISTS t");
+	$io_manager->{Connection}->do("CREATE TEMP TABLE t (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
 	evalue REAL,starth INTEGER,endh INTEGER,startq INTEGER,endq INTEGER,
 	description TEXT,hitname TEXT,hlength INTEGER,qlength INTEGER,sequence TEXT)");
 
-	$control->{Connection}->do("INSERT INTO t SELECT t_1.query,t_1.gi,t_1.rank,t_1.percent,t_1.bit,
+	#print "begin inserting\n";
+	$io_manager->{Connection}->do("INSERT INTO t SELECT t_1.query,t_1.gi,t_1.rank,t_1.percent,t_1.bit,
 	t_1.evalue,t_1.starth,t_1.endh,t_1.startq,t_1.endq,
 	t_1.description,t_1.hitname,t_1.hlength,t_1.qlength,t_1.sequence FROM t_1 
 	INNER JOIN(SELECT t_1.query,MAX(t_1.bit) AS MaxBit FROM t_1 GROUP BY query) grouped 
 	ON t_1.query=grouped.query AND t_1.bit = grouped.MaxBit");
+	#print "end inserting\n";
 
-	$control->{Connection}->do("DROP TABLE t_1");
+	$io_manager->{Connection}->do("DROP TABLE t_1");
 	$self->DisplayHits();
 }
 
 # why exactly is this outside the class scope?
-my %hmap = (); # maps the column, row to the hitname. 
+my %hmap = (); # maps the column, row to the hitname. Used in sorting the hitname column alphabetically  
 my $hcol = 0;
 my %hcolstate = (0=>-1,1=>-1);
 
@@ -1353,7 +1357,8 @@ sub DisplayHits {
 
 	$self->{ResultHitListCtrl}->DeleteAllItems;
 	
-	my $row = $control->{Connection}->selectall_arrayref("SELECT hitname,COUNT(query) FROM t GROUP BY hitname");
+	# move to 
+	my $row = $io_manager->{Connection}->selectall_arrayref("SELECT hitname,COUNT(query) FROM t GROUP BY hitname");
 
 	my $i = 0;
 	for my $item(@$row) {
@@ -1375,14 +1380,14 @@ sub DisplayHits {
 } 
 
 my %qmap = (); # maps 
-my $qcol = 0; #
-my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1);
+my $qcol = 0; # 
+my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1); 
 
 sub DisplayQueries {
 	my ($self,$event) = @_;
 	$self->{ResultQueryListCtrl}->DeleteAllItems;
 	my $hitname = $event->GetText;
-	my $hit_gis = $control->{Connection}->selectall_arrayref("SELECT * FROM t WHERE hitname=?",undef,$hitname);
+	my $hit_gis = $io_manager->{Connection}->selectall_arrayref("SELECT * FROM t WHERE hitname=?",undef,$hitname);
 	
 	my $count = 0;
 	for my $row(@$hit_gis) {
@@ -1409,7 +1414,7 @@ sub BindInfoPaint {
 	my ($self,$event) = @_;
 	my $query = $event->GetText;
 	my ($query,$gi,$rank,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$ignore_gi,$descr,$hitname,$hlength,$ignore_query,$qlength,$sequence) = 
-	@{ $control->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
+	@{ $io_manager->{Connection}->selectrow_arrayref("SELECT * FROM t WHERE query=?",undef,$query)};
 	$self->{InfoPanel}->SetQuery($query,$gi,$descr,$hlength,$qlength,$startq,$endq,$starth,$endh,$bit);
 }
 
@@ -1464,10 +1469,10 @@ sub Save {
 	my $hitname = $event->GetText;
 	my $dialog = Wx::FileDialog->new($self,"Save Queries to FASTA","","",".",wxFD_SAVE);
 	if ($dialog->ShowModal==wxID_OK) {
-		my $queries = $control->{Connection}->selectall_arrayref("SELECT query FROM t WHERE hitname=?",undef,$hitname);
+		my $queries = $io_manager->{Connection}->selectall_arrayref("SELECT query FROM t WHERE hitname=?",undef,$hitname);
 		open(FASTA, '>>' . $dialog->GetPath);
 		for my $query(@$queries) {
-			my $sequence = $control->{Connection}->selectrow_arrayref("SELECT sequence FROM t WHERE query=?",undef,$query->[0]);
+			my $sequence = $io_manager->{Connection}->selectrow_arrayref("SELECT sequence FROM t WHERE query=?",undef,$query->[0]);
 			print FASTA ">" . $query->[0] . "\n";
 		  	print FASTA $sequence->[0] . "\n";
 		  	print FASTA "\n";
@@ -1510,7 +1515,7 @@ sub new {
 
 sub UpdateItems {
 	my ($self) = @_;
-	$control->AddResultsBox($self->{ResultListBox});
+	$io_manager->AddResultsBox($self->{ResultListBox});
 }
 
 sub NewTypePanel {
@@ -1627,7 +1632,7 @@ sub OpenDialogSingle {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,$title);
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split-1];
 	}
 	$text_entry->SetValue($file_label);
@@ -1640,10 +1645,10 @@ sub OpenDialogMultiple {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,$title);
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($control->{PathSeparator},$dialog->GetPath);
+		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
 		for (my $i=@split - 1; $i>0; $i--) {
 			if ($i==@split - 2) {
-				$file_label = $split[$i] . $control->{PathSeparator} . $file_label;
+				$file_label = $split[$i] . $io_manager->{PathSeparator} . $file_label;
 				last;
 			}
 			$file_label = $split[$i] . $file_label;
@@ -2282,16 +2287,16 @@ sub AddProcessQueue {
 sub GenerateParser {
 	my ($self,$page) = @_;
 	
-	my $parser = BlastParser->new($control,$page->{ParserNameTextCtrl}->GetValue,$page->{OutputDirectoryPath});
+	my $parser = BlastParser->new($io_manager,$page->{ParserNameTextCtrl}->GetValue,$page->{OutputDirectoryPath});
 	$parser->SetBlastFile($page->{BlastFilePath});
 	$parser->SetSequenceFile($page->{FastaFilePath});
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
 	if ($page->{TableCheck}->GetValue==1) {
-			my $error = $control->ConnectDatabase();
+			my $error = $io_manager->ConnectDatabase();
 			if ($error == 1) {
-				my $table_key = $control->AddTableName($page->{ParserNameTextCtrl}->GetValue);
-				my $table = SendTable->new($control,$table_key);
+				my $table_key = $io_manager->AddTableName($page->{ParserNameTextCtrl}->GetValue);
+				my $table = SendTable->new($io_manager,$table_key);
 				$parser->AddProcess($table);
 			} 
 			elsif ($error == 0) {
@@ -2307,18 +2312,18 @@ sub GenerateParser {
 		my @ranks = ();
 		my @roots = $page->{RootList}->GetStrings;
 		if ($page->{SourceCombo}->GetValue eq "Connection") {
-			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$control);
+			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$io_manager);
 		}
 		else {
 			## Check first to see if NCBI taxonomies are there in the taxdump folder
-			if ($control->CheckTaxDump()==1) {
-				$taxonomy = FlatFileTaxonomy->new($control->{NodesFile},$control->{NamesFile},\@ranks,\@roots,$control);
+			if ($io_manager->CheckTaxDump()==1) {
+				$taxonomy = FlatFileTaxonomy->new($io_manager->{NodesFile},$io_manager->{NamesFile},\@ranks,\@roots,$io_manager);
 			}
 			else {
 				## if not, ask to download them.
 				my $download_dialog = OkDialog->new($self->GetParent(),"Taxonomy files not found","Download NCBI taxonomy files?");
 				if ($download_dialog->ShowModal == wxID_OK) {
-					$control->DownloadNCBITaxonomies();
+					$io_manager->DownloadNCBITaxonomies();
 				}
 			}
 		}
@@ -2329,11 +2334,11 @@ sub GenerateParser {
 	my $class_files = $page->{ClassBox}->GetAllFiles;
 	my $flag_files = $page->{FlagBox}->GetAllFiles;
 	for my $class_file(@$class_files) {
-		my $class = Classification->new($class_file,$control);
+		my $class = Classification->new($class_file,$io_manager);
 		push(@classes,$class);
 	}
 	for my $flag_file (@$flag_files) {
-		my $flag = FlagItems->new($page->{OutputDirectoryPath},$flag_file,$control);
+		my $flag = FlagItems->new($page->{OutputDirectoryPath},$flag_file,$io_manager);
 		push(@flags,$flag);
 	}
 	
@@ -2347,10 +2352,10 @@ sub GenerateParser {
 	if ($page->{TextCheck}->GetValue == 1) {
 		my $text;
 		if (defined $taxonomy) {
-			$text = TaxonomyTextPrinter->new($page->{OutputDirectoryPath},$taxonomy,$control);
+			$text = TaxonomyTextPrinter->new($page->{OutputDirectoryPath},$taxonomy,$io_manager);
 		}
 		else {
-			$text = TextPrinter->new($page->{OutputDirectoryPath},$control);
+			$text = TextPrinter->new($page->{OutputDirectoryPath},$io_manager);
 		}
 		$parser->AddProcess($text);
 	}
@@ -2482,7 +2487,7 @@ sub OnSize {
 
 sub Fill {
 	my ($self) = @_;
-	my $table_names = $control->GetTableNames();
+	my $table_names = $io_manager->GetTableNames();
 	my $i = 0;
 	for my $key(keys(%{$table_names})) {
 		push(@{$self->{Keys}},$key);
@@ -2514,7 +2519,7 @@ sub DeleteDialog {
 		$self->{ResultsCtrl}->DeleteItem($index);
 		my $key = $self->{Keys}->[$index];
 		splice(@{$self->{Keys}},$index,1);
-		$control->DeleteResult($key);
+		$io_manager->DeleteResult($key);
 	}
 	$delete_dialog->Destroy;
 }
@@ -2691,7 +2696,7 @@ sub TaxonomyFileUpdater {
 	my ($self,$event) = @_;
 	my $update_dialog = OkDialog->new($self,"Update NCBI Taxonomy Files","New files will be downloaded from: ftp://ftp.ncbi.nih.gov/pub/taxonomy/\nProceed?");
 	if ($update_dialog->ShowModal == wxID_OK) {
-		$control->DownloadNCBITaxonomies();
+		$io_manager->DownloadNCBITaxonomies();
 	}
 	$update_dialog->Destroy;
 }
@@ -2705,7 +2710,7 @@ sub ShowContents {
 	my $height = $size->GetHeight();
 	my $window = Wx::HtmlWindow->new($contents_frame,-1);
 	$window->SetSize($width,$height);
-	$window->LoadPage(Cava::packager::GetResource('contents.html')); # $control->{CurrentDirectory} . $control->{PathSeparator} . 
+	$window->LoadPage(Cava::packager::GetResource('contents.html')); # $io_manager->{CurrentDirectory} . $io_manager->{PathSeparator} . 
 	$contents_frame->Show();
 }
 
