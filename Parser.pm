@@ -116,12 +116,13 @@ sub SetSequenceFile {
 	return 0;
 }
 
-## Change to find the count of query sequences
+## Finds the count of the query sequences and puts them in memory
 sub SetSequences {
 	my ($self) = @_;
 	my $inFasta = Bio::SeqIO->new(-file => $self->{SequenceFile} , '-format' => 'Fasta');
 	my $count = 0;
 	while ( my $seq = $inFasta->next_seq) {
+		$self->{SequenceMemory}{$seq->id} = $seq->seq;
 		$count++;
 	}
 	$self->{NumSeqs} = $count;
@@ -166,7 +167,7 @@ sub HitData {
     my $startq = $hit->start('query');
     my $endq =  $hit->end('query');
     my $hlength = $hit->length;
-	my $sequence = $hsp->query_string;
+	my $sequence = $self->{SequenceMemory}{$query}; # $hsp->query_string;
 	
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
 }
@@ -812,6 +813,7 @@ sub PrintSummaryText {
 			}
 			print TREE $space . $node->node_name . ": " . $self->{Data}->{$node->id} . "\n";
 		}
+		close TREE;
 	}
 }
 
@@ -939,7 +941,9 @@ sub PrintSummaryText {
 				print DATA "  " . $item . ": " . $self->{Data}{$item} . "\n";
 			}
 		}
-	}	
+	}
+	
+	close DATA;
 }
 
 # to be moved to ClassificationXML, eventually
@@ -1293,6 +1297,7 @@ sub SaveTreePhylo {
 		$out->add_phyloXML_annotation(-obj=>$node,-xml=>"<value>$value</value>");
 	}
 	$out->write_tree($tree);
+	close $handle;
 }
 
 sub PrintSummaryText {

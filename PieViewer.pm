@@ -1,3 +1,11 @@
+=head1 
+This module contains two classes. PieViewer is the wxFrame that provides
+the window and menu for viewing PACT data as pie charts. PiePanel is a wxPanel that
+displays a pie chart and provides methods of interaction between the user and the chart.
+The PieViewer can hold multiple PiePanels, which is useful to compare data sets. 
+=cut
+
+
 use Wx;
 
 my $turq = Wx::Colour->new("TURQUOISE");
@@ -47,6 +55,7 @@ sub new {
 	return $self;
 }
 
+# Make the given data suitable for unpacking and displaying.
 sub TruncateData {
 	my ($self) = @_;
 	my @names_ = @{$self->{Data}->{Names}};
@@ -81,11 +90,12 @@ sub TruncateData {
 	push(@$Names,"Other");
 	push(@$Values,$others);
 	
-	$self->{Data}->{Names} = $Names;
-	$self->{Data}->{Values} = $Values;
+	$self->{Data}->{Names} = $Names; # the array of names
+	$self->{Data}->{Values} = $Values; # matches with the array of associated values
 	
 }
 
+# called when the user clicks on the pie panel. 
 sub GetCoordinates {
 	my ($self,$event) = @_;
 	my $x = $event->GetPosition()->x;
@@ -95,6 +105,8 @@ sub GetCoordinates {
 		my $ly = $self->{LegendLocations}{$i}->[1];
 		my $lwidth = $self->{LegendLocations}{$i}->[2];
 		my $lheight = $self->{LegendLocations}{$i}->[3];
+		
+		# if the click is on a legend label square, offer choice of changing legend label  
 		if ($x >= $lx and $x <= $lx + $lwidth and $y >= $ly and $y <= $ly + $lheight) {
 			my $label = $self->{Data}->{Names}->[$i];
 			my $label_dialog = Wx::TextEntryDialog->new($self,"New Label","Enter New Legend Label:",$label);
@@ -107,6 +119,7 @@ sub GetCoordinates {
 	}
 }
 
+# changes the legend to 
 sub ProcessNewLegend {
 	my ($self,$new_label,$index) = @_;
 	my @new_label_array = ($new_label);
@@ -147,6 +160,7 @@ sub SetBrushes {
 	+ wxBLUE_BRUSH,
 	+ Wx::Brush->new(Wx::Colour->new(160,32,240),wxSOLID) ); #purple
 	
+	# randomly (re)assigns color values. not needed anywhere else,for now
 	sub fisher_yates_shuffle {
 	    my $array = shift;
 	    my $i = @$array;
@@ -183,6 +197,7 @@ sub SetBrushesSync {
 	
 }
 
+# Called when user clicks on the pie panel, in the viewing square but outside the pie circle.
 sub ResizeNumbers {
 	my ($self,$panel,$event) = @_;
 	my $x = $event->GetPosition()->x;

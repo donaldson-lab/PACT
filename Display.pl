@@ -9,18 +9,22 @@ use Cwd;
 my $green = Wx::Colour->new("SEA GREEN");
 my $blue = Wx::Colour->new("SKY BLUE");
 
+# Global variable for determining whether SQLite or other rdbms is installed.
+my $has_database = 0;
+
+
 =head1 NAME
 
 ErrorMessage
 
 =head1 SYNOPSIS
 
-my $error_message = ErrorMessage->new($panel,"PACT could not connect to NCBI");
+my $error_message = ErrorMessage->new($panel,"PACT could not connect to NCBI","Error");
 
 =head1 DESCRIPTION
 
 Pops up when the user choose an action that fails (ie, the computer is not connected to the internet to check
-taxonomic information).
+taxonomic information), or a warning.
 Gives a warning and description of what happened.
 
 =cut
@@ -31,8 +35,8 @@ use Wx::Event qw(EVT_BUTTON);
 use base 'Wx::MessageDialog';
 
 sub new {
-	my ($class,$parent,$dialog) = @_;
-	my $self = $class->SUPER::new($parent,$dialog,"Error",wxSTAY_ON_TOP|wxOK|wxCENTRE,wxDefaultPosition);
+	my ($class,$parent,$dialog,$type) = @_;
+	my $self = $class->SUPER::new($parent,$dialog,$type,wxSTAY_ON_TOP|wxOK|wxCENTRE,wxDefaultPosition);
 	$self->CenterOnParent(wxBOTH);
 	$self->SetBackgroundColour($green);
 	bless ($self,$class);
@@ -88,11 +92,12 @@ sub GetCurrentDirectory {
 	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS")) {
 		my $owner = getpwuid($>);
 		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
-		mkdir($self->{CurrentDirectory});
 	}
 	else {
 		
 	}
+	mkdir($self->{CurrentDirectory});
+	chdir($self->{CurrentDirectory});
 }
 
 # Folder that stores NCBI taxonomy look-up files.
@@ -136,6 +141,13 @@ sub MakeResultsFolder {
 	my $self = shift;
 	$self->{Results} = $self->{CurrentDirectory} . $self->{PathSeparator} . "Results";
 	mkdir $self->{Results};
+	# test database connection
+	#my @drivers = DBI->available_drivers(); # This does not work in CAVA!
+	if ($self->ConnectDatabase != -1) {
+		$has_database = 1;
+	}
+	else {
+	}
 }
 
 ## Removes the table from the database. Deletes the key,label in the TableNames hash.  
@@ -152,6 +164,7 @@ sub DeleteResult {
 ## Adds the key and label to a FileBox. See FileBox
 sub AddResultsBox {
 	my ($self,$box) = @_;
+	$box->{ListBox}->Clear;
 	chdir($self->{Results});
 	my $TABLENAMES = $self->GetTableNames();
 	while ( my ($key, $value) = each(%$TABLENAMES) ) {
@@ -697,6 +710,7 @@ sub CenterDisplay {
 	EVT_BUTTON($self,$self->{RemoveButton},sub{$self->DeleteChart();});
 }
 
+# 
 sub AddPieChart {
 	my ($self) = @_;
 	$self->{ChartBox}->AddFile($self->{FileBox}->GetFile(),$self->{FileBox}->{ListBox}->GetStringSelection());
@@ -924,6 +938,8 @@ use Wx::Event qw(EVT_LISTBOX_DCLICK);
 use base 'Wx::Panel';
 use Cwd;
 use Fcntl;
+use Bio::TreeIO::nhx;
+use Bio::TreeIO::newick;
 
 sub new {
 	my ($class,$parent) = @_;
@@ -1313,7 +1329,7 @@ sub CompareTables {
 	# This could probably be done much better. Also, the SQL operations should be moved to IOHandler.
 	
 	# establish connection to database in $io_manager
-	$io_manager->ConnectDatabase();
+	#$io_manager->ConnectDatabase();
 	
 	$io_manager->{Connection}->do("DROP TABLE IF EXISTS t_1");
 	$io_manager->{Connection}->do("CREATE TEMP TABLE t_1 (query TEXT,gi INTEGER,rank INTEGER,percent REAL,bit REAL,
@@ -1349,7 +1365,7 @@ sub CompareTables {
 
 # why exactly is this outside the class scope?
 my %hmap = (); # maps the column, row to the hitname. Used in sorting the hitname column alphabetically  
-my $hcol = 0;
+my $hcol = 0; # 
 my %hcolstate = (0=>-1,1=>-1);
 
 sub DisplayHits {
@@ -1357,7 +1373,7 @@ sub DisplayHits {
 
 	$self->{ResultHitListCtrl}->DeleteAllItems;
 	
-	# move to 
+	# move to IOManager 
 	my $row = $io_manager->{Connection}->selectall_arrayref("SELECT hitname,COUNT(query) FROM t GROUP BY hitname");
 
 	my $i = 0;
@@ -1379,10 +1395,12 @@ sub DisplayHits {
 	EVT_LIST_COL_CLICK($self,$self->{ResultHitListCtrl},\&OnSortHit);
 } 
 
-my %qmap = (); # maps 
-my $qcol = 0; # 
-my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1); 
+my %qmap = (); # maps   
+my $qcol = 0; # The current selected query column  
+my %qcolstate = (0=>-1,1=>-1,2=>-1,3=>-1,4=>-1); # alternates between -1 and 1, depending
+# on the state of sorting (eg. a..z or z..a)
 
+# Called when a hit is clicked on in the Hit/count column.
 sub DisplayQueries {
 	my ($self,$event) = @_;
 	$self->{ResultQueryListCtrl}->DeleteAllItems;
@@ -1450,6 +1468,7 @@ sub HCompare {
 	}
 }
 
+# sort one of the hit items (hit name or count) alphabetically or numerically
 sub OnSortHit {
 	my($self,$event) = @_;
 	$hcol = $event->GetColumn;
@@ -1457,6 +1476,7 @@ sub OnSortHit {
 	$self->{ResultHitListCtrl}->SortItems(\&HCompare);
 }
 
+# Sort the selected query attribute column (eg, bit score) in the reverse of the existing order 
 sub OnSortQuery {
 	my($self,$event) = @_;
 	$qcol = $event->GetColumn;
@@ -1464,6 +1484,7 @@ sub OnSortQuery {
 	$self->{ResultQueryListCtrl}->SortItems(\&QCompare);
 }
 
+# Saves the queries (seqid and sequence) of the selected hitname in a FASTA file. 
 sub Save {
 	my ($self,$event) = @_;
 	my $hitname = $event->GetText;
@@ -1947,19 +1968,27 @@ sub OutputMenu {
 	$text_check_sizer->Add($self->{TextCheck},1,wxCENTER);
 	$text_label_sizer->Add($text_check_sizer,1,wxEXPAND);
 	
-	my $table_label = Wx::StaticBox->new($add_panel,-1,"Add to Database?");
-	my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
-	my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
-	$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
-	$check_sizer->Add($self->{TableCheck},1,wxCENTER);
-	$table_label_sizer->Add($check_sizer,1,wxEXPAND);
-	
 	EVT_BUTTON($add_panel,$self->{DirectoryButton},sub{$self->DirectoryButton("Choose Directory")});
 	
-	$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-	$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-	$add_sizer_v->Add($table_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+	# perhaps there should be a separate derived panel for the no database case.
+	if ($has_database == 1) {
+		my $table_label = Wx::StaticBox->new($add_panel,-1,"Add to Database?");
+		my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
+		my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
+		$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
+		$check_sizer->Add($self->{TableCheck},1,wxCENTER);
+		$table_label_sizer->Add($check_sizer,1,wxEXPAND);
+		
+		$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+		$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+		$add_sizer_v->Add($table_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+		$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+	}
+	else {
+		$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+		$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+		$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+	}
 	
 	$add_panel->SetSizer($add_sizer_h);
 	
@@ -1973,7 +2002,9 @@ sub CopyData {
 	$self->{FastaFileTextBox}->SetValue($parser_panel->{FastaFileTextBox}->GetValue());
 	$self->{DirectoryTextBox}->SetValue($parser_panel->{DirectoryTextBox}->GetValue());
 	$self->{TextCheck}->SetValue($parser_panel->{TextCheck}->GetValue());
-	$self->{TableCheck}->SetValue($parser_panel->{TableCheck}->GetValue());
+	if  (defined $self->{TableCheck}) {
+		$self->{TableCheck}->SetValue($parser_panel->{TableCheck}->GetValue());	
+	}
 	my $class_files = $parser_panel->{ClassBox}->GetAllFiles;
 	my $flag_files = $parser_panel->{FlagBox}->GetAllFiles;
 	if (defined $class_files) {
@@ -2292,19 +2323,10 @@ sub GenerateParser {
 	$parser->SetSequenceFile($page->{FastaFilePath});
 	$parser->SetParameters($page->{BitTextBox}->GetValue,$page->{EValueTextBox}->GetValue);
 	
-	if ($page->{TableCheck}->GetValue==1) {
-			my $error = $io_manager->ConnectDatabase();
-			if ($error == 1) {
-				my $table_key = $io_manager->AddTableName($page->{ParserNameTextCtrl}->GetValue);
-				my $table = SendTable->new($io_manager,$table_key);
-				$parser->AddProcess($table);
-			} 
-			elsif ($error == 0) {
-				my $error_message = ErrorMessage->new($self,"");
-			}
-			elsif ($error == -1) {
-				my $error_message = ErrorMessage->new($self,"");
-			}
+	if (defined $page->{TableCheck} and $page->{TableCheck}->GetValue==1) {
+		my $table_key = $io_manager->AddTableName($page->{ParserNameTextCtrl}->GetValue);
+		my $table = SendTable->new($io_manager,$table_key);
+		$parser->AddProcess($table);
 	}
 
 	my $taxonomy;
@@ -2366,6 +2388,7 @@ sub GenerateParser {
 	push(@{$self->{Parsers}},$parser);
 }
 
+# loops through each parsing, the most important task!
 sub RunParsers {
 	my ($self) = @_;
 	
@@ -2373,7 +2396,7 @@ sub RunParsers {
 	$progress_dialog->SetBackgroundColour($green);
 	$progress_dialog->Centre();
 	for my $parser(@{$self->{Parsers}}) {
-		$parser->prepare();
+		$parser->prepare(); # sets up the folders, counts sequences
 		my @label_strings = split(/\//,$parser->{BlastFile});
 		my $label = $label_strings[@label_strings - 1];
 		$progress_dialog->Update(-1,"Parsing " . $label . " ...");
@@ -2383,6 +2406,7 @@ sub RunParsers {
 	$progress_dialog->Destroy;
 }
 
+# 
 sub Run {
 	my ($self) = @_;
 	my $count = $self->{QueueList}->GetCount;
@@ -2535,8 +2559,8 @@ The main GUI class.
 
 package Display;
 use Cwd;
-#use Cava::packager;
-#Cava::packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
+use Cava::Packager;
+Cava::Packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -2568,6 +2592,7 @@ sub new {
 	$self->Centre();
 	$self->OnProcessClicked(0);
 	$self->SetMinSize(Wx::Size->new(1000,500));
+	
 	return $self;
 }
 
@@ -2710,7 +2735,7 @@ sub ShowContents {
 	my $height = $size->GetHeight();
 	my $window = Wx::HtmlWindow->new($contents_frame,-1);
 	$window->SetSize($width,$height);
-	$window->LoadPage(Cava::packager::GetResource('contents.html')); # $io_manager->{CurrentDirectory} . $io_manager->{PathSeparator} . 
+	$window->LoadPage(Cava::Packager::GetResource('contents.html')); # $io_manager->{CurrentDirectory} . $io_manager->{PathSeparator} . 
 	$contents_frame->Show();
 }
 
@@ -2720,25 +2745,31 @@ sub TopMenu {
 
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"Parser Menu");
-	my $manage = $self->{FileMenu}->Append(102,"Manage Table Results");
-	$self->{FileMenu}->AppendSeparator();
+	if ($has_database == 1) {
+		my $manage = $self->{FileMenu}->Append(102,"Manage Table Results");
+		$self->{FileMenu}->AppendSeparator();
+		EVT_MENU($self,102,\&InitializeResultManager);
+	}
 	my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
 	$self->{FileMenu}->AppendSeparator();
 	my $close = $self->{FileMenu}->Append(104,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
-	EVT_MENU($self,102,\&InitializeResultManager);
 	EVT_MENU($self,103,\&TaxonomyFileUpdater);
 	EVT_MENU($self,104,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();
-	my $table = $viewmenu->Append(201,"Table");
+	
+	# if there is no installed SQLite, then the table option is hidden
+	if ($has_database == 1) {
+		my $table = $viewmenu->Append(201,"Table");
+		EVT_MENU($self,201,\&InitializeTableViewer);
+	}
 	my $pie = Wx::Menu->new();
 	$viewmenu->AppendSubMenu($pie,"Pie Charts");
 	$pie->Append(202,"Taxonomy");
 	$pie->Append(203,"Classification");
 	my $tax = $viewmenu->Append(204,"Tree");
 	my $save_trees = $viewmenu->Append(205,"Save Trees");
-	EVT_MENU($self,201,\&InitializeTableViewer);
 	EVT_MENU($self,202,\&InitializeTaxPieMenu);
 	EVT_MENU($self,203,\&InitializeClassPieMenu);
 	EVT_MENU($self,204,\&InitializeTreeViewMenu);
@@ -2768,6 +2799,10 @@ sub OnInit {
 	my $display = Display->new();
 	$display->TopMenu();
 	$display->Show();
+	if ($has_database != 1) {
+		my $no_db = ErrorMessage->new($display,"SQLite is not installed. Database functions are not available.","Warning");
+		$no_db->ShowModal;
+	}
 	return 1;
 }
 
