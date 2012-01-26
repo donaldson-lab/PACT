@@ -1,1 +1,7 @@
-Hello
+The Pyrosequence Annotation and Categorization Tool (PACT) is a program developed to ease the parsing and interpretation of large BLAST output files. The program is especially useful for metagenomics and virology.
+
+PACT standalone is available only for Macs. To run it, download the .dmg and double-click on the PACT icon to start. For help, please see the contents of the help menu in the program. PACT program files and folders, including any database tables created from parsing, are stored in a folder called PACT in your home folder. To maintain a PACT database, however, you need to have SQLite installed.
+
+
+The source code can be downloaded and run from a command line on Windows and Linux, although the Windows option has not been thouroughly tested. To do this, you need BioPerl,wxPerl, and DBI. Once these modules are installed, open a terminal or command line, cd to the folder of the PACT source and type "perl Display.pl" Good luck!
+
