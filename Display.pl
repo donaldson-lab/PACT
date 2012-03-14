@@ -9,6 +9,10 @@ use Cwd;
 my $green = Wx::Colour->new("SEA GREEN");
 my $blue = Wx::Colour->new("SKY BLUE");
 
+# 0 if the feature for defining roots in taxonomy search is not available
+my $roots_feature = 0;
+my $database_feature = 0;
+
 # Global variable for determining whether SQLite or other rdbms is installed.
 my $has_database = 0;
 
@@ -61,7 +65,7 @@ do this?
 =cut
 
 package IOHandler;
-use DBI;
+use DBI; #
 use Cwd;
 use LWP::Simple;
 use Archive::Tar;
@@ -78,7 +82,9 @@ sub new {
 	# Initialize program files and folders
 	$self->GetPathSeparator();
 	$self->GetCurrentDirectory();
-	$self->MakeResultsFolder();
+	if ($database_feature==1) {
+		#$self->MakeResultsFolder();
+	}
 	$self->MakeColorPrefsFolder();
 	$self->SetTaxDump();
 	return $self;
@@ -1872,13 +1878,32 @@ sub TaxonomyMenu {
 	$tax_panel->SetBackgroundColour($blue);
 	my $sizer = Wx::BoxSizer->new(wxVERTICAL);
 	
+	my $source_outer_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $source_label = Wx::StaticBox->new($tax_panel,-1,"Source");
-	my $source_sizer = Wx::BoxSizer->new(wxVERTICAL);
+	my $source_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $source_label_sizer = Wx::StaticBoxSizer->new($source_label,wxHORIZONTAL);
 	$self->{SourceCombo} = Wx::ComboBox->new($tax_panel,-1,"",wxDefaultPosition,wxDefaultSize,["","Connection","Local Files"]);
 	$self->{SourceCombo}->SetValue("");
 	$source_label_sizer->Add($self->{SourceCombo},1,wxCENTER);
 	$source_sizer->Add($source_label_sizer,3,wxCENTER);
+	$source_outer_sizer->Add($source_sizer,1,wxCENTER);
+	
+	$sizer->Add($source_outer_sizer,1,wxEXPAND);
+	if ($roots_feature == 1) {
+		my $root_sizers = $self->RootOptions($tax_panel);
+		my $root_sizer = $root_sizers->[0];
+		my $clear_sizer_outer = $root_sizers->[1];
+		$sizer->Add($root_sizer,3,wxEXPAND);
+		$sizer->Add($clear_sizer_outer,1,wxEXPAND);
+	}
+	$tax_panel->SetSizer($sizer);
+
+	return $tax_panel;
+}
+
+# For specifying the roots to be counted in a taxonomy search. Not used in first addition. 
+sub RootOptions {
+	my ($self,$tax_panel) = @_;
 	
 	my $root_sizer = Wx::BoxSizer->new(wxVERTICAL);
 	my $root_label = Wx::StaticBox->new($tax_panel,-1,"Roots (example: \"Viruses\"): ");
@@ -1903,13 +1928,8 @@ sub TaxonomyMenu {
 	$clear_sizer_outer->Add($clear_sizer,1,wxCENTER);
 	
 	EVT_BUTTON($tax_panel,$clear_button,sub{$self->{RootList}->Clear;$self->{SourceCombo}->SetValue("");});
-
-	$sizer->Add($source_sizer,1,wxEXPAND);
-	$sizer->Add($root_sizer,3,wxEXPAND);
-	$sizer->Add($clear_sizer_outer,1,wxEXPAND);
-	$tax_panel->SetSizer($sizer);
-
-	return $tax_panel;
+	
+	return [$root_sizer,$clear_sizer_outer];
 }
 
 sub ParameterMenu {
@@ -2025,11 +2045,14 @@ sub CopyData {
 	$self->{FastaFilePath} = $parser_panel->{FastaFilePath};
 	$self->{OutputDirectoryPath} = $parser_panel->{OutputDirectoryPath};
 
-	my @roots = ();
-	for (my $i=0; $i<$parser_panel->{RootList}->GetCount; $i++) {
-		push(@roots,$parser_panel->{RootList}->GetString($i));
+	if (defined $parser_panel->{RootList} and $roots_feature == 1) {
+		my @roots = ();
+		for (my $i=0; $i<$parser_panel->{RootList}->GetCount; $i++) {
+			push(@roots,$parser_panel->{RootList}->GetString($i));
+		}
+		$self->{RootList}->Set(\@roots);
 	}
-	$self->{RootList}->Set(\@roots);
+	
 	$self->{SourceCombo}->SetValue($parser_panel->{SourceCombo}->GetValue);
 }
 
@@ -2332,7 +2355,10 @@ sub GenerateParser {
 	my $taxonomy;
 	if ($page->{SourceCombo}->GetValue ne "") {
 		my @ranks = ();
-		my @roots = $page->{RootList}->GetStrings;
+		my @roots = ();
+		if ($roots_feature == 1) {
+			@roots = $page->{RootList}->GetStrings;
+		}
 		if ($page->{SourceCombo}->GetValue eq "Connection") {
 			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$io_manager);
 		}
@@ -2409,6 +2435,7 @@ sub RunParsers {
 # 
 sub Run {
 	my ($self) = @_;
+	$self->{Parsers} = ();
 	my $count = $self->{QueueList}->GetCount;
 	if ($count > 0) {
 		my $count_string = "parser";
@@ -2559,8 +2586,8 @@ The main GUI class.
 
 package Display;
 use Cwd;
-use Cava::Packager;
-Cava::Packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
+#use Cava::Packager;
+#Cava::Packager::SetResourcePath('c:/Users/virushunter1/PACT/Resources');
 use base 'Wx::Frame';
 use Wx qw /:everything/;
 use Wx::Event qw(EVT_BUTTON);
@@ -2745,7 +2772,7 @@ sub TopMenu {
 
 	$self->{FileMenu} = Wx::Menu->new();
 	my $newblast = $self->{FileMenu}->Append(101,"Parser Menu");
-	if ($has_database == 1) {
+	if ($database_feature==1 and $has_database == 1) {
 		my $manage = $self->{FileMenu}->Append(102,"Manage Table Results");
 		$self->{FileMenu}->AppendSeparator();
 		EVT_MENU($self,102,\&InitializeResultManager);
@@ -2760,7 +2787,7 @@ sub TopMenu {
 	my $viewmenu = Wx::Menu->new();
 	
 	# if there is no installed SQLite, then the table option is hidden
-	if ($has_database == 1) {
+	if ($database_feature==1 and $has_database == 1) {
 		my $table = $viewmenu->Append(201,"Table");
 		EVT_MENU($self,201,\&InitializeTableViewer);
 	}
@@ -2799,7 +2826,7 @@ sub OnInit {
 	my $display = Display->new();
 	$display->TopMenu();
 	$display->Show();
-	if ($has_database != 1) {
+	if ($database_feature==1 and $has_database != 1) {
 		my $no_db = ErrorMessage->new($display,"SQLite is not installed. Database functions are not available.","Warning");
 		$no_db->ShowModal;
 	}
