@@ -157,16 +157,16 @@ sub HitData {
 	my @ids = split(/\|/,$hit->name);
 	my $gi = $ids[1]; #gi is specific to GenBank. This needs to be changed.
 	my $rank = 1;
-    my $descr = $hit->description;
-    my $qlength = $result->query_length;
-    my $percid = $hsp->percent_identity;
-    my $bit = $hsp->bits;
-    my $evalue = $hsp->evalue;
-    my $starth = $hit->start('hit');
-    my $endh =  $hit->end('hit');
-    my $startq = $hit->start('query');
-    my $endq =  $hit->end('query');
-    my $hlength = $hit->length;
+	my $descr = $hit->description;
+	my $qlength = $result->query_length;
+	my $percid = $hsp->percent_identity;
+	my $bit = $hsp->bits;
+	my $evalue = $hsp->evalue;
+	my $starth = $hit->start('hit');
+	my $endh =  $hit->end('hit');
+	my $startq = $hit->start('query');
+	my $endq =  $hit->end('query');
+	my $hlength = $hit->length;
 	my $sequence = $self->{SequenceMemory}{$query}; # $hsp->query_string;
 	
 	return [$query,$qlength,$sequence,$hitname,$gi,1,$descr,$percid,$bit,$evalue,$starth,$endh,$startq,$endq,$hlength];
@@ -190,8 +190,8 @@ sub WriteNoHits {
 		my $id = $seq->id;
     	if (exists $self->{NoHitIds}{$id}) {
     		print NOHITSFASTA ">" . $id . "\n";
-  			print NOHITSFASTA $seq->seq . "\n";
-  			print NOHITSFASTA "\n";
+  		print NOHITSFASTA $seq->seq . "\n";
+  		print NOHITSFASTA "\n";
     	}
 	}
 	close NOHITSFASTA;
@@ -260,6 +260,7 @@ sub Parse {
 	for my $process(@{$self->{Processes}}) {
 		$process->SaveRoutine($self->{OutputDirectory},$self->{Label});
 	}
+	chdir($self->{Control}->{CurrentDirectory});
 	$progress_dialog->Update(100);
 }
 
@@ -452,7 +453,7 @@ sub HitRoutine {
 sub PrintHit {
 	my ($self,$parent,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq,$hitname,$gi,$sequence) = @_;
 	my $dir = $parent . $self->{Control}->{PathSeparator} . $self->{Control}->ReadyForFile($hitname);
-	mkdir ($dir);
+	mkdir($dir);
 	# Header?
 	$self->PrintHitFile($dir,$hitname,$query,$qlength,$descr,$hitlength,$starth,$endh,$bit,$startq,$endq);
 	$self->PrintFasta($dir,$hitname,$query,$sequence);
@@ -573,7 +574,7 @@ sub new {
 	mkdir($self->{UnidentifiedDir});
 	$self->{NameToPath} = ();
 	bless($self,$class);
-    return $self;
+	return $self;
 }
 
 sub PrintHit {
@@ -627,6 +628,7 @@ package Taxonomy;
 use Bio::DB::Taxonomy;
 use Bio::TreeIO;
 use Bio::TreeIO::phyloxml;
+use File::Temp qw(tempfile);
 use base ("Process");
 
 sub new {
@@ -668,6 +670,7 @@ sub GetSpeciesTaxon {
 sub GenerateBranch {
 	my ($self,$hitname,$id) = @_;
 	my $species = $self->GetSpeciesTaxon($hitname,$id);
+
 	$self->{IdToSpeciesTaxon}{$id} = $species;
 	$self->AddData($species->id,$hitname);
 	my @path_names = ($hitname);
@@ -709,6 +712,10 @@ sub GenerateBranch {
 
 sub GetTrees {
 	my ($self) = @_;
+	
+	if (not defined $self->{SpeciesToAncestor}) {
+		return 0;	
+	}
 	
 	my %reverse = reverse %{$self->{SpeciesToAncestor}};
 	my %taxonomies = ();
@@ -757,13 +764,12 @@ sub SaveTrees {
 	for my $tree (@{$self->{Trees}}) {
 		my $title = $parser_name . " " . $tree->get_root_node()->node_name;
 
-		my $temp_file = $title . "_temp.xml";
-		open(my $temp_handle, ">>" . $temp_file);
-		my $temp_out = new Bio::TreeIO(-fh => $temp_handle, -format => 'phyloxml');
+		my $temp = new File::Temp( UNLINK => 0 );;
+		my $temp_out = new Bio::TreeIO(-fh => $temp, -format => 'phyloxml');
 		$temp_out->write_tree($tree);
-
 		$temp_out->DESTROY;
-		my $in = new Bio::TreeIO(-file => $temp_file, -format => 'phyloxml');
+		
+		my $in = new Bio::TreeIO(-file => $temp, -format => 'phyloxml');
 		my $in_tree = $in->next_tree;
 		for my $node($in_tree->get_nodes) {
 			my $id = $node->id;
@@ -773,6 +779,7 @@ sub SaveTrees {
 			my $value = $self->{Data}{$node->id};
 			$in->add_phyloXML_annotation(-obj=>$node,-xml=>"<taxonomy><scientific_name>$name</scientific_name><rank>$rank</rank></taxonomy><value>$value</value>");
 		}
+		
 		open(my $handle, ">>" . $title . ".xml");
 		my $out = new Bio::TreeIO(-fh => $handle, -format => 'phyloxml');
 		
@@ -780,7 +787,6 @@ sub SaveTrees {
 		$in_tree->add_tag_value("Title",$title);
 		
 		$out->write_tree($in_tree);
-		unlink($temp_file);
 	}
 }
 
@@ -843,12 +849,16 @@ sub new {
 	$self->SetSearchFilters($ranks,$roots);
 	$self->{TaxonomyDB} = Bio::DB::Taxonomy->new(-source => 'entrez');
 	bless($self,$class);
-    return $self;
+	return $self;
 }
 
 sub GetSpeciesTaxon {
 	my ($self,$hitname,$id) = @_;
-	return $self->{TaxonomyDB}->get_taxon(-gi => $id);
+	my $taxon = $self->{TaxonomyDB}->get_taxon(-gi => $id);
+	if (not defined $taxon) {
+		$taxon = $self->{TaxonomyDB}->get_taxon(-name => $hitname);
+	}
+	return $taxon;
 }
 
 
@@ -1278,6 +1288,7 @@ sub GetNodesLevel {
 	return \@level_nodes;
 }
 
+# saves the tree to a phyloxml file
 sub SaveTreePhylo {
 	my ($self,$tree,$data,$title,$file_path) = @_;
 	$tree->remove_all_tags();
@@ -1297,9 +1308,10 @@ sub SaveTreePhylo {
 		$out->add_phyloXML_annotation(-obj=>$node,-xml=>"<value>$value</value>");
 	}
 	$out->write_tree($tree);
-	close $handle;
+	#close $handle;
 }
 
+# prints the text file with values for each node
 sub PrintSummaryText {
 	my ($self,$tree,$data,$sub_node_name,$rank,$dir,$path) = @_;
 	
@@ -1381,7 +1393,9 @@ sub CombineTrees {
 	my $tree;
 	for my $file(@$tree_files) {
 		my $tax_xml = TaxonomyXML->new();
+		# add an exception if file is not phyloxml
 		$tax_xml->AddFile($file);
+		
 		if (not defined $tree) {
 			$tree = $tax_xml->{Tree};
 			for my $node($tree->get_nodes) {

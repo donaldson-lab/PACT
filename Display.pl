@@ -6,12 +6,13 @@ use IO::File;
 use Cwd;
 
 # Global colors
-my $green = Wx::Colour->new("SEA GREEN");
-my $blue = Wx::Colour->new("SKY BLUE");
+my $green = Wx::Colour->new("LIGHT BLUE"); #Wx::Colour->new("SEA GREEN");
+my $blue = Wx::Colour->new("LIGHT BLUE"); #Wx::Colour->new("SKY BLUE");
 
 # 0 if the feature for defining roots in taxonomy search is not available
 my $roots_feature = 0;
-my $database_feature = 0;
+my $database_feature = 1;
+my $local_tax_feature = 0;
 
 # Global variable for determining whether SQLite or other rdbms is installed.
 my $has_database = 0;
@@ -83,7 +84,7 @@ sub new {
 	$self->GetPathSeparator();
 	$self->GetCurrentDirectory();
 	if ($database_feature==1) {
-		#$self->MakeResultsFolder();
+		$self->MakeResultsFolder();
 	}
 	$self->MakeColorPrefsFolder();
 	$self->SetTaxDump();
@@ -99,8 +100,8 @@ sub GetCurrentDirectory {
 		my $owner = getpwuid($>);
 		$self->{CurrentDirectory} = "/Users/" . $owner . "/PACT";
 	}
-	else {
-		
+	elsif ($self->{OS} =~ m/MS/ or $self->{OS} =~ m/win/i) {
+		$self->{CurrentDirectory} = "C:\\Users\\owner\\PACT";
 	}
 	mkdir($self->{CurrentDirectory});
 	chdir($self->{CurrentDirectory});
@@ -224,6 +225,9 @@ sub MakeColorPrefsFolder {
 sub ConnectDatabase {
 	my ($self) = @_;
 	chdir($self->{Results});
+	my $db_user = "";
+	my $db_pass = "";
+	
 	$self->{Connection} = DBI->connect("dbi:SQLite:Results.db","","") or return -1; 
 	tie(my %TABLENAMES,'DB_File',"TABLENAMES.db",O_CREAT|O_RDWR,0644) or return 0;
 	return 1;
@@ -246,8 +250,8 @@ sub GetPathSeparator {
 	if (($self->{OS} eq "darwin") or ($self->{OS} eq "MacOS") or ($self->{OS} eq "linux")) {
 		$self->{PathSeparator} = "/";
 	}
-	elsif ($self->{OS} eq "MSWin32") {
-		$self->{PathSeparator} = "\/";
+	elsif ($self->{OS} =~ m/MS/ or $self->{OS} =~ m/win/i) {
+		$self->{PathSeparator} = "\\";
 	}
 	else {
 		exit;
@@ -671,9 +675,13 @@ sub CenterDisplay {
 	
 	$self->{ItemListLabel} = Wx::StaticBox->new($self->{FilePanel},-1,$self->{FileLabel});
 	$self->{ItemListLabelSizer} = Wx::StaticBoxSizer->new($self->{ItemListLabel},wxVERTICAL);
+	my $browse_button_sizer_outer = Wx::BoxSizer->new(wxVERTICAL);
+	my $browse_button_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	$self->{BrowseButton} = Wx::Button->new($self->{FilePanel},-1,"Browse");
+	$browse_button_sizer->Add($self->{BrowseButton},1,wxCENTER);
+	$browse_button_sizer_outer->Add($browse_button_sizer,1,wxCENTER);
 	$self->{FileBox} = FileBox->new($self->{FilePanel});
-	$self->{ItemListLabelSizer}->Add($self->{BrowseButton},1,wxCENTER);
+	$self->{ItemListLabelSizer}->Add($browse_button_sizer_outer,1,wxCENTER);
 	$self->{ItemListLabelSizer}->Add($self->{FileBox}->{ListBox},7,wxEXPAND);
 	
 	$file_sizer->Add($self->{ItemListLabelSizer},3,wxCENTER|wxEXPAND);
@@ -776,7 +784,7 @@ sub LoadFile {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,"Choose Results");
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
+		my @split = split("\\" . $io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split - 1];
 		$self->{FileBox}->AddFile($dialog->GetPath,$file_label);
 		$self->{FileBox}->{ListBox}->SetSelection($self->{FileBox}->{ListBox}->GetCount - 1);
@@ -954,7 +962,7 @@ sub new {
 	$self->SetBackgroundColour($green);
 	$self->{TreeFileListBox} = undef;
 	$self->{TreeListBox} = undef;
-	$self->{TreeFormats} = {"Newick"=>"newick","New Hampshire"=>"nhx","PhyloXML"=>"phyloxml"};
+	$self->{TreeFormats} = {"Newick"=>"newick","PhyloXML"=>"phyloxml"};
 	bless ($self,$class);
 	$self->TreeBox();
 	return $self;
@@ -972,9 +980,14 @@ sub TreeBox {
 	
 	my $file_list_label = Wx::StaticBox->new($file_panel,-1,"Save tree file or merge files:");
 	my $file_list_label_sizer = Wx::StaticBoxSizer->new($file_list_label,wxVERTICAL);
+	my $browse_button_sizer_outer = Wx::BoxSizer->new(wxVERTICAL);
+	my $browse_button_sizer = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $browse_button = Wx::Button->new($file_panel,-1,"Browse");
+	$browse_button_sizer->Add($browse_button,1,wxCENTER);
+	$browse_button_sizer_outer->Add($browse_button_sizer,1,wxCENTER);
+	
 	$self->{TreeFileListBox} = FileBox->new($file_panel);
-	$file_list_label_sizer->Add($browse_button,1,wxCENTER);
+	$file_list_label_sizer->Add($browse_button_sizer_outer,1,wxCENTER);
 	$file_list_label_sizer->Add($self->{TreeFileListBox}->{ListBox},7,wxEXPAND);
 	
 	$file_sizer->Add($file_list_label_sizer,3,wxCENTER|wxEXPAND);
@@ -1030,11 +1043,12 @@ sub LoadFile {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,"Choose Results");
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
+		# test to see if phyloxml
+		my @split = split("\\" . $io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split - 1];
+		$self->{TreeFileListBox}->AddFile($dialog->GetPath,$file_label);
+		$self->{TreeFileListBox}->{ListBox}->SetSelection($self->{TreeFileListBox}->{ListBox}->GetCount - 1);
 	}
-	$self->{TreeFileListBox}->AddFile($dialog->GetPath,$file_label);
-	$self->{TreeFileListBox}->{ListBox}->SetSelection($self->{TreeFileListBox}->{ListBox}->GetCount - 1);
 	
 }
 
@@ -1068,6 +1082,7 @@ sub SaveTree {
 			$helper->SaveTreePhylo($tree,$data,$self->{TitleBox}->GetValue,$save_dialog->GetPath());
 		}
 		elsif ($format eq "nhx") {
+			#not implemented
 			open(my $handle, ">>" . $save_dialog->GetPath());
 			my $treeio = Bio::TreeIO->new(-format => 'nhx',-fh => $handle);
 			$treeio->write_tree($tree);
@@ -1531,7 +1546,7 @@ sub new {
 	$self->{CenterDisplay}->Insert(2,$self->{ChartPanel},3,wxCENTER|wxEXPAND|wxTOP|wxBOTTOM,10);
 
 	$self->{GenerateButton}->SetLabel("View");
-	$self->{ItemListLabelSizer}->Remove($self->{BrowseButton});
+	#$self->{ItemListLabelSizer}->Remove($self->{BrowseButton});
 	$self->{BrowseButton}->Destroy;
 	$self->UpdateItems();
 	EVT_BUTTON($self,$self->{AddButton},sub{$self->{CompareListBox}->AddFile($self->{ResultListBox}->GetFile,$self->{ResultListBox}->{ListBox}->GetStringSelection)});
@@ -1610,8 +1625,6 @@ sub new {
 	
 	my $self = $class->SUPER::new($parent,-1);
 	$self->SetBackgroundColour($green);
-	
-	$self->{ParserMenu} = undef;
 
 	$self->{ParserNameTextCtrl} = undef;
 	$self->{BlastFileTextBox} = undef;
@@ -1633,7 +1646,10 @@ sub new {
 	$self->{FlagLabelToPath} = ();
 	$self->{RootList} = undef;
 	$self->{RankList} = undef;
-	$self->{SourceCombo} = undef;
+	$self->{SourceCombo} = undef; #CheckBox
+	$self->{TaxCheck} = undef;
+	
+	$self->{TaxSource} = "";
 	
 	bless ($self,$class);
 	$self->ParserPanel();
@@ -1645,12 +1661,15 @@ sub DirectoryButton {
 	my ($self,$title) = @_;
 	my $dialog = 0;
 	my $file_label = "";
+	my $path = "";
 	$dialog = Wx::DirDialog->new($self,$title);
 	if ($dialog->ShowModal==wxID_OK) {
-		$file_label = $dialog->GetPath;
+		$path = $dialog->GetPath;
+		my @split = split("\\" . $io_manager->{PathSeparator},$path);
+		$file_label = $split[@split-2] . $io_manager->{PathSeparator} . $split[@split - 1];
+		$self->{OutputDirectoryPath} = $path;
+		$self->{DirectoryTextBox}->SetValue($file_label);
 	}
-	$self->{OutputDirectoryPath} = $dialog->GetPath;
-	$self->{DirectoryTextBox}->SetValue($file_label);
 }
 
 sub OpenDialogSingle {
@@ -1659,11 +1678,11 @@ sub OpenDialogSingle {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,$title);
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
+		my @split = split("\\" . $io_manager->{PathSeparator},$dialog->GetPath);
 		$file_label = $split[@split-1];
+		$text_entry->SetValue($file_label);
+		return $dialog->GetPath;
 	}
-	$text_entry->SetValue($file_label);
-	return $dialog->GetPath;
 }
 
 sub OpenDialogMultiple {
@@ -1672,7 +1691,7 @@ sub OpenDialogMultiple {
 	my $file_label = "";
 	$dialog = Wx::FileDialog->new($self,$title);
 	if ($dialog->ShowModal==wxID_OK) {
-		my @split = split($io_manager->{PathSeparator},$dialog->GetPath);
+		my @split = split("\\" . $io_manager->{PathSeparator},$dialog->GetPath);
 		for (my $i=@split - 1; $i>0; $i--) {
 			if ($i==@split - 2) {
 				$file_label = $split[$i] . $io_manager->{PathSeparator} . $file_label;
@@ -1680,8 +1699,8 @@ sub OpenDialogMultiple {
 			}
 			$file_label = $split[$i] . $file_label;
 		}
+		$filebox->AddFile($dialog->GetPath,$file_label);
 	}
-	$filebox->AddFile($dialog->GetPath,$file_label);
 }
 
 sub CheckProcess {
@@ -1732,26 +1751,25 @@ sub NewParserMenu {
 
 	my ($self) = @_;
 	
-	$self->{ParserMenu} = Wx::Panel->new($self,-1);
-	$self->{ParserMenu}->SetBackgroundColour($green);
-	
 	$self->{OptionsNotebook} = Wx::Notebook->new($self,-1);
 	$self->{OptionsNotebook}->SetBackgroundColour($green);
 	
 	my $filespanel = $self->InputFilesMenu();
 	my $classificationpanel = $self->ClassificationMenu();
-	my $taxonomypanel = $self->TaxonomyMenu();
 	my $parameterspanel = $self->ParameterMenu();
 	my $add_panel = $self->OutputMenu();
 	
 	$self->{OptionsNotebook}->AddPage($filespanel,"Input Files");
 	$self->{OptionsNotebook}->AddPage($classificationpanel,"Classifications");
-	$self->{OptionsNotebook}->AddPage($taxonomypanel,"NCBI Taxonomy");
+	
+	if ($local_tax_feature == 1) {
+		my $taxonomypanel = $self->TaxonomyMenu();
+		$self->{OptionsNotebook}->AddPage($taxonomypanel,"NCBI Taxonomy");
+	}
 	$self->{OptionsNotebook}->AddPage($parameterspanel,"Parameters");
 	$self->{OptionsNotebook}->AddPage($add_panel,"Output");
 	
 	$self->{OptionsNotebook}->Layout;
-	$self->{ParserMenu}->Layout;
 	
 }
 
@@ -1927,6 +1945,7 @@ sub RootOptions {
 	$clear_sizer->Add($clear_button,1,wxCENTER);
 	$clear_sizer_outer->Add($clear_sizer,1,wxCENTER);
 	
+	Evt_COMBOBOX($tax_panel,$self->{SourceCombo},sub{$self->{TaxSource} = $self->{SourceCombo}->GetValue;});
 	EVT_BUTTON($tax_panel,$clear_button,sub{$self->{RootList}->Clear;$self->{SourceCombo}->SetValue("");});
 	
 	return [$root_sizer,$clear_sizer_outer];
@@ -1970,6 +1989,8 @@ sub OutputMenu {
 	my $add_sizer_h = Wx::BoxSizer->new(wxHORIZONTAL);
 	my $add_sizer_v = Wx::BoxSizer->new(wxVERTICAL);
 	
+	my @sizer_items = ();
+	
 	my $directory_label = Wx::StaticBox->new($add_panel,-1,"Output Directory:");
 	my $directory_label_sizer = Wx::StaticBoxSizer->new($directory_label,wxHORIZONTAL);
 	$self->{DirectoryTextBox} = Wx::TextCtrl->new($add_panel,-1,"");
@@ -1980,6 +2001,7 @@ sub OutputMenu {
 	$dir_sizer->Add($self->{DirectoryButton},1,wxCENTER);
 	$dir_sizer->Add($self->{DirectoryTextBox},1,wxCENTER|wxEXPAND);
 	$directory_label_sizer->Add($dir_sizer,1,wxEXPAND);
+	push(@sizer_items,$directory_label_sizer);
 	
 	my $text_label = Wx::StaticBox->new($add_panel,-1,"Text Files");
 	my $text_label_sizer = Wx::StaticBoxSizer->new($text_label,wxHORIZONTAL);
@@ -1987,28 +2009,36 @@ sub OutputMenu {
 	$self->{TextCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
 	$text_check_sizer->Add($self->{TextCheck},1,wxCENTER);
 	$text_label_sizer->Add($text_check_sizer,1,wxEXPAND);
+	push(@sizer_items,$text_label_sizer);
 	
 	EVT_BUTTON($add_panel,$self->{DirectoryButton},sub{$self->DirectoryButton("Choose Directory")});
 	
 	# perhaps there should be a separate derived panel for the no database case.
-	if ($has_database == 1) {
+	if ($has_database == 1 and $database_feature == 1) {
 		my $table_label = Wx::StaticBox->new($add_panel,-1,"Add to Database?");
 		my $table_label_sizer = Wx::StaticBoxSizer->new($table_label,wxHORIZONTAL);
 		my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
 		$self->{TableCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
 		$check_sizer->Add($self->{TableCheck},1,wxCENTER);
 		$table_label_sizer->Add($check_sizer,1,wxEXPAND);
-		
-		$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-		$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-		$add_sizer_v->Add($table_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-		$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+		push(@sizer_items,$table_label_sizer);
 	}
-	else {
-		$add_sizer_v->Add($directory_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-		$add_sizer_v->Add($text_label_sizer,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
-		$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
+	if ($local_tax_feature == 0) {
+		my $tax_label = Wx::StaticBox->new($add_panel,-1,"NCBI Taxonomy Folders?");
+		my $tax_label_sizer = Wx::StaticBoxSizer->new($tax_label,wxHORIZONTAL);
+		my $check_sizer = Wx::BoxSizer->new(wxVERTICAL);
+		$self->{TaxCheck} = Wx::CheckBox->new($add_panel,-1,"Yes");
+		$check_sizer->Add($self->{TaxCheck},1,wxCENTER);
+		$tax_label_sizer->Add($check_sizer,1,wxEXPAND);
+		EVT_CHECKBOX($self,$self->{TaxCheck},sub{$self->{TaxSource} = "Connection";});
+		push(@sizer_items,$tax_label_sizer);
 	}
+	
+	for my $item(@sizer_items) {
+		$add_sizer_v->Add($item,1,wxCENTER|wxEXPAND|wxLEFT|wxRIGHT,50);
+	}
+	
+	$add_sizer_h->Add($add_sizer_v,1,wxCENTER);
 	
 	$add_panel->SetSizer($add_sizer_h);
 	
@@ -2053,7 +2083,17 @@ sub CopyData {
 		$self->{RootList}->Set(\@roots);
 	}
 	
-	$self->{SourceCombo}->SetValue($parser_panel->{SourceCombo}->GetValue);
+	if ($local_tax_feature == 1) {
+		if (defined $self->{SourceCombo}) {
+			$self->{SourceCombo}->SetValue($parser_panel->{SourceCombo}->GetValue);
+		}
+	}
+	else {
+		if (defined $self->{TaxCheck}) {
+			$self->{TaxCheck}->SetValue($parser_panel->{TaxCheck}->GetValue);
+			$self->{TaxSource} = $parser_panel->{TaxSource};
+		}
+	}
 }
 
 
@@ -2183,6 +2223,7 @@ sub NewParser {
 	
 	push(@{$self->{ParserPanels}},$parser_panel);
 	my $count = $self->{GenerateList}->GetCount;
+
 	$self->{GenerateList}->InsertItems(["New Parser"],$count);
 	$self->{GenerateList}->SetSelection($count);
 	
@@ -2198,25 +2239,25 @@ sub DeleteParser {
 	
 	my $delete_dialog = OkDialog->new($self->GetParent,"Delete","Delete Parser?");
 	if ($delete_dialog->ShowModal == wxID_OK) {
-			my $selection = $self->{GenerateList}->GetSelection;
-			$self->{GenerateList}->Delete($selection);
-			my $delete_panel = splice(@{$self->{ParserPanels}},$selection,1);
-			if (@{$self->{ParserPanels}} == 0) {
-				$self->NewParser();
+		my $selection = $self->{GenerateList}->GetSelection;
+		$self->{GenerateList}->Delete($selection);
+		my $delete_panel = splice(@{$self->{ParserPanels}},$selection,1);
+		if (@{$self->{ParserPanels}} == 0) {
+			$self->NewParser();
+		}
+		else {
+			if ($selection == 0) {
+				$self->{GenerateList}->SetSelection($selection);
+				$self->DisplayParserPanel($selection);
 			}
 			else {
-				if ($selection == 0) {
-					$self->{GenerateList}->SetSelection($selection);
-					$self->DisplayParserPanel($selection);
-				}
-				else {
-					$self->{GenerateList}->SetSelection($selection - 1);
-					$self->DisplayParserPanel($selection - 1);
-				}
+				$self->{GenerateList}->SetSelection($selection - 1);
+				$self->DisplayParserPanel($selection - 1);
 			}
-			$delete_panel->Destroy;
-			$self->Refresh;
-			$self->Layout;
+		}
+		$delete_panel->Destroy;
+		$self->Refresh;
+		$self->Layout;
 	}
 	$delete_dialog->Destroy;
 }
@@ -2334,6 +2375,7 @@ sub AddProcessQueue {
 	$self->{QueueList}->InsertItems([$label],$count);
 	my $queue_panel = ParserPanel->new($self);
 	$queue_panel->CopyData($self->{ParserPanel});
+	$queue_panel->Hide;
 	push(@{$self->{QueuedPanels}},$queue_panel);
 	EVT_TEXT($queue_panel,$queue_panel->{ParserNameTextCtrl},sub{$self->{QueueList}->SetString($self->{QueueList}->GetSelection,$queue_panel->{ParserNameTextCtrl}->GetValue);});
 }
@@ -2353,13 +2395,14 @@ sub GenerateParser {
 	}
 
 	my $taxonomy;
-	if ($page->{SourceCombo}->GetValue ne "") {
+	if ($page->{TaxSource} ne "") {
 		my @ranks = ();
 		my @roots = ();
 		if ($roots_feature == 1) {
 			@roots = $page->{RootList}->GetStrings;
 		}
-		if ($page->{SourceCombo}->GetValue eq "Connection") {
+		# check if internet connection is available
+		if ($page->{TaxSource} eq "Connection") {
 			$taxonomy = ConnectionTaxonomy->new(\@ranks,\@roots,$io_manager);
 		}
 		else {
@@ -2419,15 +2462,15 @@ sub RunParsers {
 	my ($self) = @_;
 	
 	my $progress_dialog = Wx::ProgressDialog->new("","",100,$self,wxSTAY_ON_TOP|wxPD_APP_MODAL);
-	$progress_dialog->SetBackgroundColour($green);
 	$progress_dialog->Centre();
 	for my $parser(@{$self->{Parsers}}) {
 		$parser->prepare(); # sets up the folders, counts sequences
-		my @label_strings = split(/\//,$parser->{BlastFile});
+		my @label_strings = split("\\" . $io_manager->{PathSeparator},$parser->{BlastFile});
 		my $label = $label_strings[@label_strings - 1];
 		$progress_dialog->Update(-1,"Parsing " . $label . " ...");
 		$progress_dialog->Fit();
 		$parser->Parse($progress_dialog);
+		# delete parser?
 	}
 	$progress_dialog->Destroy;
 }
@@ -2777,11 +2820,13 @@ sub TopMenu {
 		$self->{FileMenu}->AppendSeparator();
 		EVT_MENU($self,102,\&InitializeResultManager);
 	}
-	my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
+	if ($local_tax_feature == 1) {
+		my $updater = $self->{FileMenu}->Append(103,"Update NCBI Taxonomy Files");
+		EVT_MENU($self,103,\&TaxonomyFileUpdater);
+	}
 	$self->{FileMenu}->AppendSeparator();
 	my $close = $self->{FileMenu}->Append(104,"Quit");
 	EVT_MENU($self,101,\&OnProcessClicked);
-	EVT_MENU($self,103,\&TaxonomyFileUpdater);
 	EVT_MENU($self,104,sub{$self->Close(1)});
 
 	my $viewmenu = Wx::Menu->new();

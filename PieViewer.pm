@@ -7,10 +7,12 @@ The PieViewer can hold multiple PiePanels, which is useful to compare data sets.
 
 
 use Wx;
+use Wx qw /:everything/;
 
 my $turq = Wx::Colour->new("TURQUOISE");
 my $blue = Wx::Colour->new(130,195,250);
 my $brown = Wx::Colour->new(205,133,63);
+my $font = Wx::Font->new(16,wxFONTFAMILY_ROMAN,wxNORMAL,wxNORMAL,0);
 
 
 =head1 
@@ -244,7 +246,7 @@ sub Title {
 sub Draw {
 	my ($self,$dc) = @_;
 	
-	my $gc = Wx::GraphicsContext::Create($dc);
+	#my $gc = Wx::GraphicsContext::Create($dc);
 
 	# Chart Data
 	my @labels = @{$self->{Data}->{Names}};
@@ -275,7 +277,6 @@ sub Draw {
 	}
 	
 	# Set font for text 
-	my $font = Wx::Font->new(14,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
 	$dc->SetFont($font);
 	
 	$dc->DrawRectangle(0,0,$width,$height);
@@ -298,7 +299,7 @@ sub Draw {
 		my $current_angle = $prev_angle + 2*pi*$values[$count]/$total;
 		
 		# Draws the pie arc, and if specified, the numeric value.
-		$self->DrawSlice($dc,$gc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$labels[$count],$values[$count]);
+		$self->DrawSlice($dc,$dc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$labels[$count],$values[$count]);
 		
 		$prev_angle = $current_angle;
 
@@ -399,7 +400,8 @@ sub DrawValue {
 
 sub DrawSlice {
 	my ($self,$dc,$gc,$width,$height,$radius,$legend_height,$prev_angle,$current_angle,$count,$label,$value) = @_;
-	
+
+=cut	
 	my $path = $gc->CreatePath();
 	if ($count == 8) {
 		$gc->SetBrush($gc->CreateBrush(wxGREY_BRUSH));
@@ -413,15 +415,28 @@ sub DrawSlice {
 	my $end = 2*pi - $current_angle;
 	$path->AddArc(0,0,(1/3)*$radius,$start,$end,0);
 	$gc->FillPath($path,wxODDEVEN_RULE);
-	$gc->Translate(-$width/2,-2*$height/5);	
+	$gc->Translate(-$width/2,-2*$height/5);
+=cut	
+
+	my $circle_radius = (1/3)*$radius;
+	if ($count == 8) {
+		$dc->SetBrush(wxGREY_BRUSH);
+	}
+	else {
+		$dc->SetBrush($self->{Brushes}{$label});
+	}
+	my $start = 2*pi - $prev_angle;
+	my $end = 2*pi - $current_angle;
+	my $x = $width/2;
+	my $y = 2*$height/5;
+	$dc->DrawArc($x + $circle_radius*cos($start),$y + $circle_radius*sin($start),$x + $circle_radius*cos($end),$y + $circle_radius*sin($end),$x,$y);
 }
 
 sub DrawTitle {
-	
+
 	my ($self,$dc,$width) = @_;
 	
 	if ($self->{Title} ne "") {
-		my $font = Wx::Font->new(16,wxFONTFAMILY_SCRIPT,wxNORMAL,wxNORMAL,0);
 		$dc->SetFont($font);
 		my @title_dim = $dc->GetTextExtent($self->{Title},undef); # Get text height to center.
 		my $w = $title_dim[0];
@@ -685,14 +700,24 @@ sub ExportDialog {
 	my ($self,$event) = @_;
 	my $dialog = Wx::FileDialog->new($self,"Save Pie Chart","","","*.*",wxFD_SAVE);
 	if ($dialog->ShowModal==wxID_OK){
-		$self->Export($dialog->GetPath);
+		$self->Export($dialog->GetPath,"bmp");
 	}
 }
 
 sub Export {
-	my ($self,$file_name) = @_;
-	my $handler = Wx::PNGHandler->new();
-	my $file = IO::File->new($file_name . ".png","w");
+	my ($self,$file_name,$type) = @_;
+	my $handler;
+	if ($type eq "jpg") {
+		$handler = Wx::JPEGHandler->new();
+	}
+	elsif ($type eq "png") {
+		$handler = Wx::PNGHandler->new();
+	}
+	else {
+		$handler = Wx::BMPHandler->new();
+		$type = "bmp";
+	}
+	my $file = IO::File->new($file_name . "." . $type,"w");
 	my $pie = $self->{Notebook}->GetCurrentPage();
 	$handler->SaveFile($pie->{Bitmap}->ConvertToImage(),$file);
 }
