@@ -11,7 +11,7 @@ my $blue = Wx::Colour->new("LIGHT BLUE"); #Wx::Colour->new("SKY BLUE");
 
 # 0 if the feature for defining roots in taxonomy search is not available
 my $roots_feature = 0;
-my $database_feature = 1;
+my $database_feature = 0;
 my $local_tax_feature = 0;
 
 # Global variable for determining whether SQLite or other rdbms is installed.
